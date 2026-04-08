@@ -1,0 +1,9 @@
+# Ignore files in data, processed, and reports folders
+data/*
+!data/.gitkeep
+
+processed/*
+!processed/.gitkeep
+
+reports/*
+!reports/.gitkeep

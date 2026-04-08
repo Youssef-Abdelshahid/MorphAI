@@ -1,0 +1,14 @@
+# CLI:  python -m src.main --data data/your_dataset.csv --target col --metric f1
+# UI:   python start_ui.py
+
+pandas>=1.5.0
+numpy>=1.23.0
+scikit-learn>=1.2.0
+imbalanced-learn>=0.11.0
+scipy>=1.9.0
+customtkinter>=5.2.0
+
+# PDF export
+reportlab>=4.0.0
+matplotlib>=3.6.0
+Pillow>=9.0.0

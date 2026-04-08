@@ -1,0 +1,476 @@
+{
+  "runs": [
+    {
+      "id": "20260325_190058_971311",
+      "timestamp": "2026-03-25T19:00:58.971311",
+      "dataset": "heart.csv",
+      "target": "HeartDisease",
+      "metric_priority": "f1",
+      "task_context": {
+        "task_type": "binary",
+        "domain": "Healthcare / Medical",
+        "prediction_goal": "",
+        "success_priority": "",
+        "imbalance_concern": "",
+        "constraints": "",
+        "active_constraints": [],
+        "notes": "",
+        "modality": "CSV / Tabular",
+        "fe_budget": "",
+        "fe_budget_norm": "moderate",
+        "data_quality": "Noisy / real-world collection",
+        "data_quality_norm": "noisy",
+        "supervision": "supervised"
+      },
+      "profile_summary": {
+        "n_rows": 918,
+        "n_cols": 11,
+        "missing_ratio": 0.0,
+        "imbalance_ratio": 1.24,
+        "num_col_ratio": 0.5455,
+        "cat_col_ratio": 0.4545,
+        "num_cols_count": 6,
+        "cat_cols_count": 5,
+        "high_missing_cols_count": 0,
+        "n_duplicates": 0,
+        "n_classes": 2,
+        "min_class_size": 410,
+        "has_outliers": true,
+        "has_high_skew": true,
+        "has_high_kurtosis": true,
+        "has_sparse_features": true,
+        "has_multicollinearity": false,
+        "has_high_cardinality": false,
+        "is_imbalanced": false,
+        "is_highly_imbalanced": false,
+        "high_outlier_cols": [
+          "Cholesterol"
+        ],
+        "high_skew_cols": [
+          "FastingBS",
+          "Oldpeak"
+        ],
+        "constant_cols_count": 0,
+        "n_high_corr_pairs": 0
+      },
+      "all_pipelines_tested": [
+        {
+          "rank": 1,
+          "pipeline_name": "num=mean | cat=mode | scale=standard | enc=onehot",
+          "pipeline_config": {
+            "num_imputer": "mean",
+            "cat_imputer": "mode",
+            "scaler": "standard",
+            "power_transform": false,
+            "encoder": "onehot",
+            "remove_duplicates": false,
+            "remove_low_variance": false,
+            "imbalance": "none",
+            "outlier_clip": false,
+            "drop_high_missing_cols": false
+          },
+          "metrics": {
+            "accuracy": 0.8431258414508592,
+            "f1": 0.8407057658921163,
+            "precision": 0.8435874319726121,
+            "recall": 0.8405165624166432
+          },
+          "metrics_std": {
+            "accuracy_std": 0.02868950686380806,
+            "f1_std": 0.029189739364653487,
+            "precision_std": 0.028682037456921793,
+            "recall_std": 0.028915155747362805
+          },
+          "elapsed_sec": 0.246
+        },
+        {
+          "rank": 2,
+          "pipeline_name": "num=median | cat=mode | scale=robust | clip | enc=onehot",
+          "pipeline_config": {
+            "num_imputer": "median",
+            "cat_imputer": "mode",
+            "scaler": "robust",
+            "power_transform": false,
+            "encoder": "onehot",
+            "remove_duplicates": false,
+            "remove_low_variance": false,
+            "imbalance": "none",
+            "outlier_clip": true,
+            "drop_high_missing_cols": false
+          },
+          "metrics": {
+            "accuracy": 0.8391324146669835,
+            "f1": 0.8365251430053601,
+            "precision": 0.8398106579779134,
+            "recall": 0.8362044310600357
+          },
+          "metrics_std": {
+            "accuracy_std": 0.02053576312168314,
+            "f1_std": 0.0212334416977779,
+            "precision_std": 0.01978586530948048,
+            "recall_std": 0.02135836537302408
+          },
+          "elapsed_sec": 0.251
+        },
+        {
+          "rank": 3,
+          "pipeline_name": "num=median | cat=mode | scale=robust | pwr | clip | enc=onehot",
+          "pipeline_config": {
+            "num_imputer": "median",
+            "cat_imputer": "mode",
+            "scaler": "robust",
+            "power_transform": true,
+            "encoder": "onehot",
+            "remove_duplicates": false,
+            "remove_low_variance": false,
+            "imbalance": "none",
+            "outlier_clip": true,
+            "drop_high_missing_cols": false
+          },
+          "metrics": {
+            "accuracy": 0.8365862833610517,
+            "f1": 0.8339344321272201,
+            "precision": 0.837204197761837,
+            "recall": 0.8336680224693919
+          },
+          "metrics_std": {
+            "accuracy_std": 0.019317349642030194,
+            "f1_std": 0.019967287414231167,
+            "precision_std": 0.018761077671894423,
+            "recall_std": 0.020129704743876556
+          },
+          "elapsed_sec": 0.335
+        },
+        {
+          "rank": 4,
+          "pipeline_name": "num=median | cat=constant | scale=robust | pwr | clip | enc=onehot",
+          "pipeline_config": {
+            "num_imputer": "median",
+            "cat_imputer": "constant",
+            "scaler": "robust",
+            "power_transform": true,
+            "encoder": "onehot",
+            "remove_duplicates": false,
+            "remove_low_variance": false,
+            "imbalance": "none",
+            "outlier_clip": true,
+            "drop_high_missing_cols": false
+          },
+          "metrics": {
+            "accuracy": 0.8365862833610517,
+            "f1": 0.8339344321272201,
+            "precision": 0.837204197761837,
+            "recall": 0.8336680224693919
+          },
+          "metrics_std": {
+            "accuracy_std": 0.019317349642030194,
+            "f1_std": 0.019967287414231167,
+            "precision_std": 0.018761077671894423,
+            "recall_std": 0.020129704743876556
+          },
+          "elapsed_sec": 0.324
+        },
+        {
+          "rank": 5,
+          "pipeline_name": "num=median | cat=mode | scale=robust | clip | enc=ordinal",
+          "pipeline_config": {
+            "num_imputer": "median",
+            "cat_imputer": "mode",
+            "scaler": "robust",
+            "power_transform": false,
+            "encoder": "ordinal",
+            "remove_duplicates": false,
+            "remove_low_variance": false,
+            "imbalance": "none",
+            "outlier_clip": true,
+            "drop_high_missing_cols": false
+          },
+          "metrics": {
+            "accuracy": 0.8362299041735963,
+            "f1": 0.8337160244937835,
+            "precision": 0.836586487903387,
+            "recall": 0.833497402824931
+          },
+          "metrics_std": {
+            "accuracy_std": 0.01596677333589822,
+            "f1_std": 0.016706665909254445,
+            "precision_std": 0.014912383261832323,
+            "recall_std": 0.017058904059239693
+          },
+          "elapsed_sec": 0.244
+        }
+      ],
+      "pipelines_tested": 5,
+      "best_pipeline": {
+        "num_imputer": "mean",
+        "cat_imputer": "mode",
+        "scaler": "standard",
+        "power_transform": false,
+        "encoder": "onehot",
+        "remove_duplicates": false,
+        "remove_low_variance": false,
+        "imbalance": "none",
+        "outlier_clip": false,
+        "drop_high_missing_cols": false
+      },
+      "best_score": 0.840706,
+      "best_metrics": {
+        "accuracy": 0.8431258414508592,
+        "f1": 0.8407057658921163,
+        "precision": 0.8435874319726121,
+        "recall": 0.8405165624166432
+      },
+      "selection_reasoning": "Selected by highest F1 = 0.8407 across 5 folds \u00d7 3 model(s); tie-broken by complexity then evaluation time.",
+      "memory_influence": {
+        "good_injections": 0,
+        "bad_avoidances": 0,
+        "meta_learner_weight": 0.0
+      },
+      "meta_learner_status": {
+        "is_mature": false,
+        "n_train": 0,
+        "weight": 0.0,
+        "min_to_use": 5,
+        "min_full_wt": 20,
+        "max_weight": 0.25
+      },
+      "outcome_summary": "Good result: F1 = 0.8407  |  5 pipeline(s) tested  |  best: num=mean | cat=mode | scale=standard | enc=onehot"
+    },
+    {
+      "id": "20260325_194709_334098",
+      "timestamp": "2026-03-25T19:47:09.334098",
+      "dataset": "heart.csv",
+      "target": "HeartDisease",
+      "metric_priority": "f1",
+      "task_context": {
+        "task_type": "binary",
+        "domain": "",
+        "prediction_goal": "",
+        "success_priority": "",
+        "imbalance_concern": "",
+        "constraints": "",
+        "active_constraints": [],
+        "notes": "",
+        "modality": "CSV / Tabular",
+        "fe_budget": "",
+        "fe_budget_norm": "moderate",
+        "data_quality": "",
+        "data_quality_norm": "unknown",
+        "supervision": "supervised"
+      },
+      "profile_summary": {
+        "n_rows": 918,
+        "n_cols": 11,
+        "missing_ratio": 0.0,
+        "imbalance_ratio": 1.24,
+        "num_col_ratio": 0.5455,
+        "cat_col_ratio": 0.4545,
+        "num_cols_count": 6,
+        "cat_cols_count": 5,
+        "high_missing_cols_count": 0,
+        "n_duplicates": 0,
+        "n_classes": 2,
+        "min_class_size": 410,
+        "has_outliers": true,
+        "has_high_skew": true,
+        "has_high_kurtosis": true,
+        "has_sparse_features": true,
+        "has_multicollinearity": false,
+        "has_high_cardinality": false,
+        "is_imbalanced": false,
+        "is_highly_imbalanced": false,
+        "high_outlier_cols": [
+          "Cholesterol"
+        ],
+        "high_skew_cols": [
+          "FastingBS",
+          "Oldpeak"
+        ],
+        "constant_cols_count": 0,
+        "n_high_corr_pairs": 0
+      },
+      "all_pipelines_tested": [
+        {
+          "rank": 1,
+          "pipeline_name": "num=mean | cat=mode | scale=standard | enc=onehot",
+          "pipeline_config": {
+            "num_imputer": "mean",
+            "cat_imputer": "mode",
+            "scaler": "standard",
+            "power_transform": false,
+            "encoder": "onehot",
+            "remove_duplicates": false,
+            "remove_low_variance": false,
+            "imbalance": "none",
+            "outlier_clip": false,
+            "drop_high_missing_cols": false
+          },
+          "metrics": {
+            "accuracy": 0.8431258414508592,
+            "f1": 0.8407057658921163,
+            "precision": 0.8435874319726121,
+            "recall": 0.8405165624166432
+          },
+          "metrics_std": {
+            "accuracy_std": 0.02868950686380806,
+            "f1_std": 0.029189739364653487,
+            "precision_std": 0.028682037456921793,
+            "recall_std": 0.028915155747362805
+          },
+          "elapsed_sec": 0.486
+        },
+        {
+          "rank": 2,
+          "pipeline_name": "num=median | cat=mode | scale=robust | clip | enc=onehot",
+          "pipeline_config": {
+            "num_imputer": "median",
+            "cat_imputer": "mode",
+            "scaler": "robust",
+            "power_transform": false,
+            "encoder": "onehot",
+            "remove_duplicates": false,
+            "remove_low_variance": false,
+            "imbalance": "none",
+            "outlier_clip": true,
+            "drop_high_missing_cols": false
+          },
+          "metrics": {
+            "accuracy": 0.8391324146669835,
+            "f1": 0.8365251430053601,
+            "precision": 0.8398106579779134,
+            "recall": 0.8362044310600357
+          },
+          "metrics_std": {
+            "accuracy_std": 0.02053576312168314,
+            "f1_std": 0.0212334416977779,
+            "precision_std": 0.01978586530948048,
+            "recall_std": 0.02135836537302408
+          },
+          "elapsed_sec": 0.263
+        },
+        {
+          "rank": 3,
+          "pipeline_name": "num=median | cat=mode | scale=robust | pwr | clip | enc=onehot",
+          "pipeline_config": {
+            "num_imputer": "median",
+            "cat_imputer": "mode",
+            "scaler": "robust",
+            "power_transform": true,
+            "encoder": "onehot",
+            "remove_duplicates": false,
+            "remove_low_variance": false,
+            "imbalance": "none",
+            "outlier_clip": true,
+            "drop_high_missing_cols": false
+          },
+          "metrics": {
+            "accuracy": 0.8365862833610517,
+            "f1": 0.8339344321272201,
+            "precision": 0.837204197761837,
+            "recall": 0.8336680224693919
+          },
+          "metrics_std": {
+            "accuracy_std": 0.019317349642030194,
+            "f1_std": 0.019967287414231167,
+            "precision_std": 0.018761077671894423,
+            "recall_std": 0.020129704743876556
+          },
+          "elapsed_sec": 0.39
+        },
+        {
+          "rank": 4,
+          "pipeline_name": "num=median | cat=constant | scale=robust | pwr | clip | enc=onehot",
+          "pipeline_config": {
+            "num_imputer": "median",
+            "cat_imputer": "constant",
+            "scaler": "robust",
+            "power_transform": true,
+            "encoder": "onehot",
+            "remove_duplicates": false,
+            "remove_low_variance": false,
+            "imbalance": "none",
+            "outlier_clip": true,
+            "drop_high_missing_cols": false
+          },
+          "metrics": {
+            "accuracy": 0.8365862833610517,
+            "f1": 0.8339344321272201,
+            "precision": 0.837204197761837,
+            "recall": 0.8336680224693919
+          },
+          "metrics_std": {
+            "accuracy_std": 0.019317349642030194,
+            "f1_std": 0.019967287414231167,
+            "precision_std": 0.018761077671894423,
+            "recall_std": 0.020129704743876556
+          },
+          "elapsed_sec": 0.349
+        },
+        {
+          "rank": 5,
+          "pipeline_name": "num=median | cat=mode | scale=robust | clip | enc=ordinal",
+          "pipeline_config": {
+            "num_imputer": "median",
+            "cat_imputer": "mode",
+            "scaler": "robust",
+            "power_transform": false,
+            "encoder": "ordinal",
+            "remove_duplicates": false,
+            "remove_low_variance": false,
+            "imbalance": "none",
+            "outlier_clip": true,
+            "drop_high_missing_cols": false
+          },
+          "metrics": {
+            "accuracy": 0.8362299041735963,
+            "f1": 0.8337160244937835,
+            "precision": 0.836586487903387,
+            "recall": 0.833497402824931
+          },
+          "metrics_std": {
+            "accuracy_std": 0.01596677333589822,
+            "f1_std": 0.016706665909254445,
+            "precision_std": 0.014912383261832323,
+            "recall_std": 0.017058904059239693
+          },
+          "elapsed_sec": 0.26
+        }
+      ],
+      "pipelines_tested": 5,
+      "best_pipeline": {
+        "num_imputer": "mean",
+        "cat_imputer": "mode",
+        "scaler": "standard",
+        "power_transform": false,
+        "encoder": "onehot",
+        "remove_duplicates": false,
+        "remove_low_variance": false,
+        "imbalance": "none",
+        "outlier_clip": false,
+        "drop_high_missing_cols": false
+      },
+      "best_score": 0.840706,
+      "best_metrics": {
+        "accuracy": 0.8431258414508592,
+        "f1": 0.8407057658921163,
+        "precision": 0.8435874319726121,
+        "recall": 0.8405165624166432
+      },
+      "selection_reasoning": "Selected by highest F1 = 0.8407 across 5 folds \u00d7 3 model(s); tie-broken by complexity then evaluation time.",
+      "memory_influence": {
+        "good_injections": 1,
+        "bad_avoidances": 0,
+        "meta_learner_weight": 0.0
+      },
+      "meta_learner_status": {
+        "is_mature": true,
+        "n_train": 5,
+        "weight": 0.0,
+        "min_to_use": 5,
+        "min_full_wt": 20,
+        "max_weight": 0.25
+      },
+      "outcome_summary": "Good result: F1 = 0.8407  |  5 pipeline(s) tested  |  best: num=mean | cat=mode | scale=standard | enc=onehot"
+    }
+  ]
+}

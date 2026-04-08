@@ -1,0 +1,239 @@
+"""
+ui/views/history_view.py — History view mixin.
+
+Provides _build_history_view, _refresh_history, _show_history_detail,
+and _load_history_report for the App class.
+"""
+from __future__ import annotations
+
+from datetime import datetime
+from pathlib import Path
+from typing import List
+
+import customtkinter as ctk
+
+from ui.constants import (
+    _ROOT,
+    BG_WIN, BG_BAR, BG_SIDEBAR, BG_INPUT,
+    ACCENT, ACCENT_H, BORDER,
+    TXT, TXT_MUTED,
+    FONT_FAMILY,
+)
+from ui.helpers import _card, _load_json, _open_file
+
+
+class HistoryViewMixin:
+    """Mixin that adds the History view to App."""
+
+    def _build_history_view(self) -> None:
+        view = ctk.CTkFrame(self._content, fg_color=BG_WIN, corner_radius=0)
+        self._views["history"] = view
+
+        # Top bar
+        bar = ctk.CTkFrame(view, height=44, fg_color=BG_BAR, corner_radius=0)
+        bar.pack(fill="x")
+        bar.pack_propagate(False)
+        ctk.CTkLabel(bar, text="Run History",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=15, weight="bold"),
+                     text_color=TXT).pack(side="left", padx=16)
+        ctk.CTkButton(
+            bar, text="Refresh", width=72, height=28,
+            fg_color="transparent", border_width=1, border_color=BORDER,
+            text_color=TXT_MUTED, hover_color=BG_BAR,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13), command=self._refresh_history,
+        ).pack(side="right", padx=10, pady=8)
+
+        # Body: left list + separator + right detail
+        body = ctk.CTkFrame(view, fg_color="transparent")
+        body.pack(fill="both", expand=True)
+
+        # Left list
+        list_panel = ctk.CTkFrame(body, width=290, fg_color=BG_SIDEBAR, corner_radius=0)
+        list_panel.pack(side="left", fill="y")
+        list_panel.pack_propagate(False)
+        ctk.CTkLabel(list_panel, text="PAST RUNS",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+                     text_color=TXT_MUTED).pack(anchor="w", padx=16, pady=(14, 6))
+        self._hist_list = ctk.CTkScrollableFrame(
+            list_panel, fg_color="transparent", scrollbar_button_color=BORDER,
+        )
+        self._hist_list.pack(fill="both", expand=True)
+
+        # Separator
+        ctk.CTkFrame(body, width=1, fg_color=BORDER, corner_radius=0).pack(
+            side="left", fill="y"
+        )
+
+        # Right detail
+        self._hist_detail = ctk.CTkScrollableFrame(
+            body, fg_color=BG_WIN, scrollbar_button_color=BORDER,
+        )
+        self._hist_detail.pack(side="left", fill="both", expand=True)
+
+        self._hist_empty = ctk.CTkLabel(
+            self._hist_detail,
+            text="Select a run from the list to view its details.",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=15), text_color=TXT_MUTED,
+        )
+        self._hist_empty.pack(expand=True, pady=80)
+
+    def _refresh_history(self) -> None:
+        for w in self._hist_list.winfo_children():
+            w.destroy()
+
+        reports_dir = _ROOT / "reports"
+        files: List[Path] = []
+        if reports_dir.exists():
+            files = sorted(
+                reports_dir.glob("report_*.json"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+
+        if not files:
+            ctk.CTkLabel(
+                self._hist_list, text="No past runs found.",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=13), text_color=TXT_MUTED,
+            ).pack(padx=12, pady=12)
+            return
+
+        for jf in files:
+            report = _load_json(jf)
+            if report is None:
+                continue
+            cfg     = report.get("config", {})
+            ts_raw  = report.get("timestamp", "")
+            try:
+                ts_fmt = datetime.fromisoformat(ts_raw).strftime("%Y-%m-%d  %H:%M")
+            except Exception:
+                ts_fmt = jf.stem[-15:]
+            ds_name = Path(cfg.get("data_path", "?")).name
+            metric  = cfg.get("metric", "?")
+            sc      = report.get("best_pipeline", {}).get("metrics", {}).get(metric)
+            score   = f"{sc:.4f}" if sc is not None else "?"
+            label   = f"{ts_fmt}  |  {ds_name}\n{metric.upper()} {score}"
+
+            btn = ctk.CTkButton(
+                self._hist_list, text=label,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12), height=52,
+                anchor="w", corner_radius=6,
+                fg_color="transparent", hover_color=BG_BAR, text_color=TXT,
+                command=lambda r=report, p=jf: self._show_history_detail(r, p),
+            )
+            btn.pack(fill="x", padx=6, pady=2)
+
+    def _show_history_detail(self, report: dict, report_path: Path) -> None:
+        for w in self._hist_detail.winfo_children():
+            w.destroy()
+
+        cfg    = report.get("config", {})
+        metric = cfg.get("metric", "f1")
+        best   = report.get("best_pipeline", {})
+        m      = best.get("metrics", {})
+        P      = 20
+
+        ts_raw = report.get("timestamp", "")
+        try:
+            ts_fmt = datetime.fromisoformat(ts_raw).strftime("%Y-%m-%d  %H:%M:%S")
+        except Exception:
+            ts_fmt = ts_raw
+
+        ctk.CTkLabel(
+            self._hist_detail, text="Run Details",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"), text_color=TXT,
+        ).pack(anchor="w", padx=P, pady=(16, 8))
+
+        # Summary card
+        c = _card(self._hist_detail)
+        c.pack(fill="x", padx=P, pady=(0, 10))
+
+        def kv(k: str, v: str) -> None:
+            row = ctk.CTkFrame(c, fg_color="transparent")
+            row.pack(fill="x", padx=12, pady=2)
+            ctk.CTkLabel(row, text=k,
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+                         text_color=TXT_MUTED, width=140, anchor="w").pack(side="left")
+            ctk.CTkLabel(row, text=v,
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT,
+                         anchor="w", wraplength=420).pack(side="left", fill="x", expand=True)
+
+        kv("Timestamp",        ts_fmt)
+        kv("Dataset",          Path(cfg.get("data_path", "—")).name)
+        kv("Target",           cfg.get("target", "—"))
+        kv("Priority metric",  metric.upper())
+        kv("Best pipeline",    best.get("name", "—"))
+        kv("Score",            f"{m.get(metric,0):.4f}  "
+                               f"(acc={m.get('accuracy',0):.4f}  "
+                               f"f1={m.get('f1',0):.4f}  "
+                               f"prec={m.get('precision',0):.4f}  "
+                               f"rec={m.get('recall',0):.4f})")
+        kv("Pipelines tested", str(report.get("pipelines_tested", "?")))
+        kv("Report file",      report_path.name)
+
+        ctk.CTkFrame(c, fg_color="transparent", height=6).pack()
+
+        # Action buttons
+        btn_row = ctk.CTkFrame(self._hist_detail, fg_color="transparent")
+        btn_row.pack(fill="x", padx=P, pady=(0, 12))
+
+        ctk.CTkButton(
+            btn_row, text="View Full Report", width=150, height=32,
+            fg_color=ACCENT, hover_color=ACCENT_H, font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            command=lambda r=report: self._load_history_report(r),
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            btn_row, text="Export PDF", width=110, height=32,
+            fg_color=BG_INPUT, hover_color=BORDER,
+            border_width=1, border_color=BORDER, text_color=TXT,
+            corner_radius=8, font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            command=lambda r=report: self._export_pdf_for(r),
+        ).pack(side="left", padx=(0, 8))
+
+        # Try to find matching cleaned CSV
+        proc_dir = _ROOT / "processed"
+        ds_stem  = Path(cfg.get("data_path", "")).stem
+        csv_files: List[Path] = []
+        if proc_dir.exists() and ds_stem:
+            csv_files = sorted(
+                proc_dir.glob(f"{ds_stem}_*_cleaned.csv"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+        if csv_files:
+            ctk.CTkButton(
+                btn_row, text="Open Cleaned CSV", width=150, height=32,
+                fg_color=BG_INPUT, hover_color=BORDER,
+                border_width=1, border_color=BORDER, text_color=TXT,
+                corner_radius=8, font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+                command=lambda p=csv_files[0]: _open_file(p),
+            ).pack(side="left")
+
+        # Profile mini-summary
+        prof = report.get("profile_summary", {})
+        if prof:
+            ctk.CTkLabel(
+                self._hist_detail, text="DATASET PROFILE",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+                text_color=TXT_MUTED,
+            ).pack(anchor="w", padx=P, pady=(8, 4))
+            pc = _card(self._hist_detail)
+            pc.pack(fill="x", padx=P, pady=(0, 20))
+            for k, v in [
+                ("Rows",         f"{prof.get('n_rows','?'):,}"),
+                ("Columns",      f"{prof.get('n_cols','?')}  "
+                                 f"(num={prof.get('num_cols_count','?')}, "
+                                 f"cat={prof.get('cat_cols_count','?')})"),
+                ("Missing",      f"{prof.get('total_missing_ratio',0)*100:.1f}%"),
+                ("Classes",      f"{prof.get('n_classes','?')}  "
+                                 f"(imbalance {prof.get('imbalance_ratio',1):.1f}x)"),
+                ("Outlier cols", str(prof.get("high_outlier_cols_count", 0))),
+                ("Skew cols",    str(prof.get("high_skew_cols_count", 0))),
+            ]:
+                kv(k, v)
+
+    def _load_history_report(self, report: dict) -> None:
+        """Load a history report into Report view and switch to it."""
+        self._report_data = report
+        self._render_report(report)
+        self._switch_view("report")
