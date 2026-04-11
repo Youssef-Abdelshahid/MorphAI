@@ -159,7 +159,10 @@ class HistoryViewMixin:
 
         kv("Timestamp",        ts_fmt)
         kv("Dataset",          Path(cfg.get("data_path", "—")).name)
-        kv("Target",           cfg.get("target", "—"))
+        if report.get("modality") == "Image":
+            kv("Modality",         "Image")
+        else:
+            kv("Target",           cfg.get("target", "—"))
         kv("Priority metric",  metric.upper())
         kv("Best pipeline",    best.get("name", "—"))
         kv("Score",            f"{m.get(metric,0):.4f}  "
@@ -190,23 +193,31 @@ class HistoryViewMixin:
             command=lambda r=report: self._export_pdf_for(r),
         ).pack(side="left", padx=(0, 8))
 
-        # Try to find matching cleaned CSV
         proc_dir = _ROOT / "processed"
         ds_stem  = Path(cfg.get("data_path", "")).stem
-        csv_files: List[Path] = []
+        is_image_run = report.get("modality") == "Image"
+        artifact_files: List[Path] = []
         if proc_dir.exists() and ds_stem:
-            csv_files = sorted(
-                proc_dir.glob(f"{ds_stem}_*_cleaned.csv"),
-                key=lambda p: p.stat().st_mtime,
-                reverse=True,
-            )
-        if csv_files:
+            if is_image_run:
+                artifact_files = sorted(
+                    proc_dir.glob(f"{ds_stem}_*_processed.zip"),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True,
+                )
+            else:
+                artifact_files = sorted(
+                    proc_dir.glob(f"{ds_stem}_*_cleaned.csv"),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True,
+                )
+        if artifact_files:
+            btn_text = "Open Processed ZIP" if is_image_run else "Open Cleaned CSV"
             ctk.CTkButton(
-                btn_row, text="Open Cleaned CSV", width=150, height=32,
+                btn_row, text=btn_text, width=150, height=32,
                 fg_color=BG_INPUT, hover_color=BORDER,
                 border_width=1, border_color=BORDER, text_color=TXT,
                 corner_radius=8, font=ctk.CTkFont(family=FONT_FAMILY, size=13),
-                command=lambda p=csv_files[0]: _open_file(p),
+                command=lambda p=artifact_files[0]: _open_file(p),
             ).pack(side="left")
 
         # Profile mini-summary
@@ -219,18 +230,32 @@ class HistoryViewMixin:
             ).pack(anchor="w", padx=P, pady=(8, 4))
             pc = _card(self._hist_detail)
             pc.pack(fill="x", padx=P, pady=(0, 20))
-            for k, v in [
-                ("Rows",         f"{prof.get('n_rows','?'):,}"),
-                ("Columns",      f"{prof.get('n_cols','?')}  "
-                                 f"(num={prof.get('num_cols_count','?')}, "
-                                 f"cat={prof.get('cat_cols_count','?')})"),
-                ("Missing",      f"{prof.get('total_missing_ratio',0)*100:.1f}%"),
-                ("Classes",      f"{prof.get('n_classes','?')}  "
-                                 f"(imbalance {prof.get('imbalance_ratio',1):.1f}x)"),
-                ("Outlier cols", str(prof.get("high_outlier_cols_count", 0))),
-                ("Skew cols",    str(prof.get("high_skew_cols_count", 0))),
-            ]:
-                kv(k, v)
+            if report.get("modality") == "Image":
+                ch_map = {1: "Grayscale", 3: "RGB", 4: "RGBA"}
+                for k, v in [
+                    ("Images",      f"{prof.get('n_images', 0):,}"),
+                    ("Classes",     f"{prof.get('n_classes','?')}  "
+                                    f"(imbalance {prof.get('imbalance_ratio',1):.1f}x)"),
+                    ("Avg size",    f"{prof.get('avg_height', 0):.0f} x "
+                                    f"{prof.get('avg_width', 0):.0f} px"),
+                    ("Color mode",  ch_map.get(prof.get("dominant_color_channels", 3), "RGB")),
+                    ("Avg brightness", f"{prof.get('avg_brightness', 0):.3f}"),
+                    ("Corrupt",     str(prof.get("n_corrupt", 0))),
+                ]:
+                    kv(k, v)
+            else:
+                for k, v in [
+                    ("Rows",         f"{prof.get('n_rows', 0):,}"),
+                    ("Columns",      f"{prof.get('n_cols','?')}  "
+                                     f"(num={prof.get('num_cols_count','?')}, "
+                                     f"cat={prof.get('cat_cols_count','?')})"),
+                    ("Missing",      f"{prof.get('total_missing_ratio',0)*100:.1f}%"),
+                    ("Classes",      f"{prof.get('n_classes','?')}  "
+                                     f"(imbalance {prof.get('imbalance_ratio',1):.1f}x)"),
+                    ("Outlier cols", str(prof.get("high_outlier_cols_count", 0))),
+                    ("Skew cols",    str(prof.get("high_skew_cols_count", 0))),
+                ]:
+                    kv(k, v)
 
     def _load_history_report(self, report: dict) -> None:
         """Load a history report into Report view and switch to it."""

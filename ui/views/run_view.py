@@ -654,6 +654,11 @@ class RunViewMixin:
             _ctx_row(ctx_card, "Task type", task_var, _IMG_TASK_OPTS, width=280)
             self._modality_context_vars["task_type"] = task_var
 
+            metric_var = ctk.StringVar(value="f1")
+            _ctx_row(ctx_card, "Priority metric", metric_var,
+                     ["f1", "accuracy", "precision", "recall"], width=140)
+            self._modality_context_vars["metric"] = metric_var
+
             fmt_var = ctk.StringVar(value=_SENTINEL)
             _ctx_row(ctx_card, "Input format", fmt_var, _IMG_FORMAT_OPTS, width=200)
             self._modality_context_vars["image_format"] = fmt_var
@@ -942,6 +947,161 @@ class RunViewMixin:
 
         ctk.CTkButton(
             act, text="Open Cleaned CSV", width=150, height=34,
+            fg_color=BG_INPUT, hover_color=BORDER,
+            border_width=1, border_color=BORDER, text_color=TXT,
+            corner_radius=8, font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            command=self._open_cleaned,
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            act, text="Console", width=90, height=34,
+            fg_color=BG_INPUT, hover_color=BORDER,
+            border_width=1, border_color=BORDER, text_color=TXT,
+            corner_radius=8, font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            command=lambda: self._switch_view("console"),
+        ).pack(side="left")
+
+        rf.pack(fill="x")
+
+    def _show_image_run_results(self, msg: dict) -> None:
+        rf = self._results_frame
+        for w in rf.winfo_children():
+            w.destroy()
+
+        _hsep(rf, pady=(16, 4))
+        _sec_label(rf, "RUN RESULTS", padx=20, pady=(8, 8))
+
+        cards_row = ctk.CTkFrame(rf, fg_color="transparent")
+        cards_row.pack(fill="x", padx=20)
+
+        c1 = _card(cards_row)
+        c1.pack(side="left", fill="both", expand=True, padx=(0, 6))
+        _sec_label(c1, "DATASET", padx=14, pady=(10, 4))
+        ctk.CTkLabel(c1, text=f"{msg['n_images']:,} images",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=22, weight="bold"),
+                     text_color=TXT).pack(anchor="w", padx=14)
+        ctk.CTkLabel(c1, text=f"{msg['n_classes']} classes",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=13), text_color=TXT_MUTED).pack(anchor="w", padx=14)
+        ctk.CTkLabel(c1,
+                     text=f"avg {msg['avg_height']}x{msg['avg_width']}  /  {msg.get('color_info', 'RGB')}",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT_MUTED).pack(anchor="w", padx=14)
+        ir = msg.get("imbalance_ratio", 1.0)
+        ctk.CTkLabel(c1, text=f"imbalance ratio {ir:.1f}x",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT_MUTED).pack(
+            anchor="w", padx=14, pady=(0, 12))
+
+        c2 = _card(cards_row)
+        c2.pack(side="left", fill="both", expand=True, padx=6)
+        _sec_label(c2, "BEST PIPELINE", padx=14, pady=(10, 4))
+        for part in msg["best_name"].split(" | "):
+            ctk.CTkLabel(c2, text=part,
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT,
+                         anchor="w").pack(anchor="w", padx=14)
+        ctk.CTkLabel(c2, text=f"{msg['n_pipelines']} candidates tested",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT_MUTED).pack(
+            anchor="w", padx=14, pady=(6, 2))
+        ml_status = msg.get("meta_status", {})
+        if ml_status.get("is_mature"):
+            ml_txt = f"Meta-learner: active (w={ml_status.get('weight', 0):.2f})"
+        else:
+            n_tr   = ml_status.get("n_train", 0)
+            n_need = ml_status.get("min_to_use", 5)
+            ml_txt = f"Meta-learner: learning ({n_tr}/{n_need})"
+        ctk.CTkLabel(c2, text=ml_txt,
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=TXT_MUTED).pack(
+            anchor="w", padx=14, pady=(0, 12))
+
+        c3 = _card(cards_row)
+        c3.pack(side="left", fill="both", expand=True, padx=(6, 0))
+        _sec_label(c3, "METRICS", padx=14, pady=(10, 4))
+        pmetric = msg["metric"]
+        m       = msg["metrics"]
+        for mk in ["f1", "accuracy", "precision", "recall"]:
+            is_p = (mk == pmetric)
+            mr   = ctk.CTkFrame(c3, fg_color="transparent")
+            mr.pack(fill="x", padx=14, pady=1)
+            ctk.CTkLabel(mr,
+                         text=mk.upper() if is_p else mk.capitalize(),
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=12,
+                                          weight="bold" if is_p else "normal"),
+                         text_color=ACCENT if is_p else TXT_MUTED,
+                         width=74, anchor="w").pack(side="left")
+            ctk.CTkLabel(mr, text=f"{m[mk]:.4f}",
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=12,
+                                          weight="bold" if is_p else "normal"),
+                         text_color=TXT if is_p else TXT_MUTED).pack(side="left")
+        ctk.CTkLabel(c3,
+                     text=f"{msg['n_splits']} folds  x  {msg['n_models']} models",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=TXT_MUTED).pack(
+            anchor="w", padx=14, pady=(6, 12))
+
+        ctx = msg.get("task_context", {})
+        if any(v for v in ctx.values()):
+            ctx_card = _card(rf)
+            ctx_card.pack(fill="x", padx=20, pady=(8, 0))
+            _sec_label(ctx_card, "TASK CONTEXT", padx=14, pady=(10, 4))
+
+            modality_val = ctx.get("modality", "")
+            if modality_val:
+                row = ctk.CTkFrame(ctx_card, fg_color="transparent")
+                row.pack(fill="x", padx=14, pady=1)
+                ctk.CTkLabel(row, text="Modality:",
+                             font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+                             text_color=TXT_MUTED, width=90, anchor="w").pack(side="left")
+                ctk.CTkLabel(row, text=modality_val,
+                             font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT,
+                             anchor="w").pack(side="left", fill="x")
+
+            for field_key, label in _RESULTS_CONTEXT_LABELS.items():
+                val = ctx.get(field_key, "")
+                if not val:
+                    continue
+                row = ctk.CTkFrame(ctx_card, fg_color="transparent")
+                row.pack(fill="x", padx=14, pady=1)
+                ctk.CTkLabel(row, text=f"{label}:",
+                             font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+                             text_color=TXT_MUTED, width=90, anchor="w").pack(side="left")
+                short_val = val if len(val) <= 80 else val[:77] + "…"
+                ctk.CTkLabel(row, text=short_val,
+                             font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT,
+                             anchor="w", wraplength=500).pack(side="left", fill="x")
+
+            for field_key, label in [("constraints", "Constraints"), ("notes", "Notes")]:
+                val = ctx.get(field_key, "")
+                if not val:
+                    continue
+                row = ctk.CTkFrame(ctx_card, fg_color="transparent")
+                row.pack(fill="x", padx=14, pady=1)
+                ctk.CTkLabel(row, text=f"{label}:",
+                             font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+                             text_color=TXT_MUTED, width=90, anchor="w").pack(side="left")
+                short_val = val if len(val) <= 80 else val[:77] + "…"
+                ctk.CTkLabel(row, text=short_val,
+                             font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT,
+                             anchor="w", wraplength=500).pack(side="left", fill="x")
+
+            ctk.CTkFrame(ctx_card, height=10, fg_color="transparent").pack()
+
+        act = ctk.CTkFrame(rf, fg_color="transparent")
+        act.pack(fill="x", padx=20, pady=(10, 20))
+
+        ctk.CTkButton(
+            act, text="View Report", width=130, height=34,
+            fg_color=ACCENT, hover_color=ACCENT_H,
+            corner_radius=8, font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            command=lambda: self._switch_view("report"),
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            act, text="Export PDF", width=110, height=34,
+            fg_color=BG_INPUT, hover_color=BORDER,
+            border_width=1, border_color=BORDER, text_color=TXT,
+            corner_radius=8, font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            command=self._on_export_pdf,
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            act, text="Open Processed ZIP", width=150, height=34,
             fg_color=BG_INPUT, hover_color=BORDER,
             border_width=1, border_color=BORDER, text_color=TXT,
             corner_radius=8, font=ctk.CTkFont(family=FONT_FAMILY, size=13),

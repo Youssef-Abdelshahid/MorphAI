@@ -7,3 +7,14 @@ processed/*
 
 reports/*
 !reports/.gitkeep
+
+venv/
+
+__pycache__/
+*.pyc
+
+.vscode/
+
+.env
+
+node_modules/

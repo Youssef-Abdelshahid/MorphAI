@@ -1,0 +1,991 @@
+{
+  "runs": [
+    {
+      "id": "20260411_170942_668457",
+      "timestamp": "2026-04-11T17:09:42.668457",
+      "dataset": "image_(Alien and Predator)_2",
+      "metric_priority": "f1",
+      "task_context": {
+        "task_type": "classification",
+        "domain": "",
+        "constraints": "",
+        "active_constraints": [],
+        "notes": "",
+        "modality": "Image",
+        "image_format": "",
+        "color_space": "",
+        "supervision": "supervised"
+      },
+      "profile_summary": {
+        "n_images": 894,
+        "n_classes": 2,
+        "imbalance_ratio": 1.0,
+        "min_class_size": 447,
+        "avg_height": 210.0,
+        "avg_width": 249.1,
+        "min_height": 130,
+        "min_width": 164,
+        "max_height": 308,
+        "max_width": 388,
+        "height_std": 43.16,
+        "width_std": 49.54,
+        "avg_brightness": 0.3475,
+        "brightness_std": 0.2459,
+        "avg_contrast": 0.2194,
+        "contrast_std": 0.0955,
+        "grayscale_ratio": 0.008,
+        "rgba_ratio": 0.0,
+        "dominant_color_channels": 3,
+        "avg_file_size_kb": 8.1,
+        "n_corrupt": 0,
+        "has_varied_sizes": true,
+        "has_low_contrast": false,
+        "has_high_contrast_variance": true,
+        "has_varied_brightness": true,
+        "has_grayscale_images": true,
+        "has_mostly_grayscale": false,
+        "has_small_images": false,
+        "has_large_images": false,
+        "is_imbalanced": false,
+        "is_highly_imbalanced": false,
+        "is_uniform_size": false
+      },
+      "all_pipelines_tested": [
+        {
+          "rank": 1,
+          "pipeline_name": "sz=32 | clr=rgb | norm=minmax",
+          "pipeline_config": {
+            "resize": 32,
+            "color_mode": "rgb",
+            "normalization": "minmax",
+            "histogram_eq": false,
+            "denoise": false,
+            "sharpen": false,
+            "augment_h_flip": false,
+            "augment_v_flip": false,
+            "augment_rotation": "none",
+            "augment_color_jitter": false,
+            "imbalance": "none"
+          },
+          "metrics": {
+            "accuracy": 0.6622036699935137,
+            "f1": 0.6590155300894521,
+            "precision": 0.668134551488353,
+            "recall": 0.6621431543903454
+          },
+          "metrics_std": {
+            "accuracy_std": 0.030177934279545352,
+            "f1_std": 0.032286305826742856,
+            "precision_std": 0.027064243527221733,
+            "recall_std": 0.03015216276442453
+          },
+          "elapsed_sec": 30.106
+        },
+        {
+          "rank": 2,
+          "pipeline_name": "sz=64 | clr=rgb | norm=standard",
+          "pipeline_config": {
+            "resize": 64,
+            "color_mode": "rgb",
+            "normalization": "standard",
+            "histogram_eq": false,
+            "denoise": false,
+            "sharpen": false,
+            "augment_h_flip": false,
+            "augment_v_flip": false,
+            "augment_rotation": "none",
+            "augment_color_jitter": false,
+            "imbalance": "none"
+          },
+          "metrics": {
+            "accuracy": 0.6573745109116399,
+            "f1": 0.6562851974944492,
+            "precision": 0.659756514364288,
+            "recall": 0.6573533083645443
+          },
+          "metrics_std": {
+            "accuracy_std": 0.041234341030494046,
+            "f1_std": 0.04106639138929208,
+            "precision_std": 0.04269381880593628,
+            "recall_std": 0.04127719567865546
+          },
+          "elapsed_sec": 81.975
+        },
+        {
+          "rank": 3,
+          "pipeline_name": "sz=64 | clr=rgb | norm=minmax | heq | dns",
+          "pipeline_config": {
+            "resize": 64,
+            "color_mode": "rgb",
+            "normalization": "minmax",
+            "histogram_eq": true,
+            "denoise": true,
+            "sharpen": false,
+            "augment_h_flip": false,
+            "augment_v_flip": false,
+            "augment_rotation": "none",
+            "augment_color_jitter": false,
+            "imbalance": "none"
+          },
+          "metrics": {
+            "accuracy": 0.6469106354487059,
+            "f1": 0.6456179181992852,
+            "precision": 0.6492325138521546,
+            "recall": 0.6468872243029545
+          },
+          "metrics_std": {
+            "accuracy_std": 0.041443305431783636,
+            "f1_std": 0.04124056316896492,
+            "precision_std": 0.04231458702877236,
+            "recall_std": 0.04143039860702459
+          },
+          "elapsed_sec": 160.688
+        },
+        {
+          "rank": 4,
+          "pipeline_name": "sz=64 | clr=rgb | norm=minmax | heq | dns | hflip | rot=moderate | jitter",
+          "pipeline_config": {
+            "resize": 64,
+            "color_mode": "rgb",
+            "normalization": "minmax",
+            "histogram_eq": true,
+            "denoise": true,
+            "sharpen": false,
+            "augment_h_flip": true,
+            "augment_v_flip": false,
+            "augment_rotation": "moderate",
+            "augment_color_jitter": true,
+            "imbalance": "none"
+          },
+          "metrics": {
+            "accuracy": 0.6435377565752307,
+            "f1": 0.6423242526320057,
+            "precision": 0.6457547175539019,
+            "recall": 0.6435414065751144
+          },
+          "metrics_std": {
+            "accuracy_std": 0.0411718963369133,
+            "f1_std": 0.04067615243508742,
+            "precision_std": 0.04280254756657604,
+            "recall_std": 0.04115152157240566
+          },
+          "elapsed_sec": 609.917
+        },
+        {
+          "rank": 5,
+          "pipeline_name": "sz=64 | clr=rgb | norm=minmax | heq | hflip | rot=light",
+          "pipeline_config": {
+            "resize": 64,
+            "color_mode": "rgb",
+            "normalization": "minmax",
+            "histogram_eq": true,
+            "denoise": false,
+            "sharpen": false,
+            "augment_h_flip": true,
+            "augment_v_flip": false,
+            "augment_rotation": "light",
+            "augment_color_jitter": false,
+            "imbalance": "none"
+          },
+          "metrics": {
+            "accuracy": 0.6379699956060512,
+            "f1": 0.6360706574023743,
+            "precision": 0.6409313333866623,
+            "recall": 0.637973366625052
+          },
+          "metrics_std": {
+            "accuracy_std": 0.04177287356001971,
+            "f1_std": 0.041542003036807544,
+            "precision_std": 0.0426305958290181,
+            "recall_std": 0.04168224721852874
+          },
+          "elapsed_sec": 331.167
+        },
+        {
+          "rank": 6,
+          "pipeline_name": "sz=64 | clr=grayscale | norm=minmax | heq | dns",
+          "pipeline_config": {
+            "resize": 64,
+            "color_mode": "grayscale",
+            "normalization": "minmax",
+            "histogram_eq": true,
+            "denoise": true,
+            "sharpen": false,
+            "augment_h_flip": false,
+            "augment_v_flip": false,
+            "augment_rotation": "none",
+            "augment_color_jitter": false,
+            "imbalance": "none"
+          },
+          "metrics": {
+            "accuracy": 0.636080597577051,
+            "f1": 0.634903079457764,
+            "precision": 0.6382598705792089,
+            "recall": 0.6360590928006657
+          },
+          "metrics_std": {
+            "accuracy_std": 0.07174659606185584,
+            "f1_std": 0.07135428405245917,
+            "precision_std": 0.07309107873082794,
+            "recall_std": 0.07173568595303526
+          },
+          "elapsed_sec": 46.307
+        },
+        {
+          "rank": 7,
+          "pipeline_name": "sz=128 | clr=rgb | norm=minmax",
+          "pipeline_config": {
+            "resize": 128,
+            "color_mode": "rgb",
+            "normalization": "minmax",
+            "histogram_eq": false,
+            "denoise": false,
+            "sharpen": false,
+            "augment_h_flip": false,
+            "augment_v_flip": false,
+            "augment_rotation": "none",
+            "augment_color_jitter": false,
+            "imbalance": "none"
+          },
+          "metrics": {
+            "accuracy": 0.6454397087439584,
+            "f1": 0.6315657314813015,
+            "precision": 0.6619770877969121,
+            "recall": 0.6453932584269663
+          },
+          "metrics_std": {
+            "accuracy_std": 0.04518784105454253,
+            "f1_std": 0.06254237743023644,
+            "precision_std": 0.02662053371966424,
+            "recall_std": 0.045192164240623514
+          },
+          "elapsed_sec": 415.484
+        },
+        {
+          "rank": 8,
+          "pipeline_name": "sz=64 | clr=grayscale | norm=standard | heq | hflip | rot=light",
+          "pipeline_config": {
+            "resize": 64,
+            "color_mode": "grayscale",
+            "normalization": "standard",
+            "histogram_eq": true,
+            "denoise": false,
+            "sharpen": false,
+            "augment_h_flip": true,
+            "augment_v_flip": false,
+            "augment_rotation": "light",
+            "augment_color_jitter": false,
+            "imbalance": "none"
+          },
+          "metrics": {
+            "accuracy": 0.6212018496432532,
+            "f1": 0.6201222684248406,
+            "precision": 0.6234006859412923,
+            "recall": 0.6212567623803579
+          },
+          "metrics_std": {
+            "accuracy_std": 0.05997269622204419,
+            "f1_std": 0.05938574889987086,
+            "precision_std": 0.06182782729786966,
+            "recall_std": 0.05991285623187911
+          },
+          "elapsed_sec": 93.615
+        }
+      ],
+      "pipelines_tested": 8,
+      "best_pipeline": {
+        "resize": 32,
+        "color_mode": "rgb",
+        "normalization": "minmax",
+        "histogram_eq": false,
+        "denoise": false,
+        "sharpen": false,
+        "augment_h_flip": false,
+        "augment_v_flip": false,
+        "augment_rotation": "none",
+        "augment_color_jitter": false,
+        "imbalance": "none"
+      },
+      "best_score": 0.659016,
+      "best_metrics": {
+        "accuracy": 0.6622036699935137,
+        "f1": 0.6590155300894521,
+        "precision": 0.668134551488353,
+        "recall": 0.6621431543903454
+      },
+      "selection_reasoning": "Selected by highest F1 = 0.6590 across 5 folds x 3 model(s); tie-broken by complexity then evaluation time.",
+      "memory_influence": {
+        "good_injections": 0,
+        "bad_avoidances": 0,
+        "meta_learner_weight": 0.0
+      },
+      "meta_learner_status": {
+        "is_mature": false,
+        "n_train": 0,
+        "weight": 0.0,
+        "min_to_use": 5,
+        "min_full_wt": 20,
+        "max_weight": 0.25
+      },
+      "outcome_summary": "Good result: F1 = 0.6590  |  8 pipeline(s) tested  |  best: sz=32 | clr=rgb | norm=minmax"
+    },
+    {
+      "id": "20260411_175045_486945",
+      "timestamp": "2026-04-11T17:50:45.486945",
+      "dataset": "image_(Alien and Predator)_2",
+      "metric_priority": "f1",
+      "task_context": {
+        "task_type": "classification",
+        "domain": "",
+        "constraints": "",
+        "active_constraints": [],
+        "notes": "",
+        "modality": "Image",
+        "image_format": "",
+        "color_space": "",
+        "supervision": "supervised"
+      },
+      "profile_summary": {
+        "n_images": 894,
+        "n_classes": 2,
+        "imbalance_ratio": 1.0,
+        "min_class_size": 447,
+        "avg_height": 210.0,
+        "avg_width": 249.1,
+        "min_height": 130,
+        "min_width": 164,
+        "max_height": 308,
+        "max_width": 388,
+        "height_std": 43.16,
+        "width_std": 49.54,
+        "avg_brightness": 0.3475,
+        "brightness_std": 0.2459,
+        "avg_contrast": 0.2194,
+        "contrast_std": 0.0955,
+        "grayscale_ratio": 0.008,
+        "rgba_ratio": 0.0,
+        "dominant_color_channels": 3,
+        "avg_file_size_kb": 8.1,
+        "n_corrupt": 0,
+        "has_varied_sizes": true,
+        "has_low_contrast": false,
+        "has_high_contrast_variance": true,
+        "has_varied_brightness": true,
+        "has_grayscale_images": true,
+        "has_mostly_grayscale": false,
+        "has_small_images": false,
+        "has_large_images": false,
+        "is_imbalanced": false,
+        "is_highly_imbalanced": false,
+        "is_uniform_size": false
+      },
+      "all_pipelines_tested": [
+        {
+          "rank": 1,
+          "pipeline_name": "sz=128 | clr=rgb | norm=minmax",
+          "pipeline_config": {
+            "resize": 128,
+            "color_mode": "rgb",
+            "normalization": "minmax",
+            "histogram_eq": false,
+            "denoise": false,
+            "sharpen": false,
+            "augment_h_flip": false,
+            "augment_v_flip": false,
+            "augment_rotation": "none",
+            "augment_color_jitter": false,
+            "imbalance": "none"
+          },
+          "metrics": {
+            "accuracy": 0.8825602075617769,
+            "f1": 0.8824971928362437,
+            "precision": 0.8834029644366675,
+            "recall": 0.8825717852684144
+          },
+          "metrics_std": {
+            "accuracy_std": 0.0009302543180583418,
+            "f1_std": 0.0009517945764957869,
+            "precision_std": 0.0008298616076488246,
+            "recall_std": 0.0009685401519130277
+          },
+          "elapsed_sec": 13.99
+        },
+        {
+          "rank": 2,
+          "pipeline_name": "sz=64 | clr=rgb | norm=standard",
+          "pipeline_config": {
+            "resize": 64,
+            "color_mode": "rgb",
+            "normalization": "standard",
+            "histogram_eq": false,
+            "denoise": false,
+            "sharpen": false,
+            "augment_h_flip": false,
+            "augment_v_flip": false,
+            "augment_rotation": "none",
+            "augment_color_jitter": false,
+            "imbalance": "none"
+          },
+          "metrics": {
+            "accuracy": 0.8288766137300442,
+            "f1": 0.8287631063024855,
+            "precision": 0.8297859913661889,
+            "recall": 0.8289013732833957
+          },
+          "metrics_std": {
+            "accuracy_std": 0.0206401029823168,
+            "f1_std": 0.020691326118411055,
+            "precision_std": 0.020260426450810498,
+            "recall_std": 0.02056816277289912
+          },
+          "elapsed_sec": 43.815
+        },
+        {
+          "rank": 3,
+          "pipeline_name": "sz=64 | clr=rgb | norm=minmax | heq | hflip | rot=light",
+          "pipeline_config": {
+            "resize": 64,
+            "color_mode": "rgb",
+            "normalization": "minmax",
+            "histogram_eq": true,
+            "denoise": false,
+            "sharpen": false,
+            "augment_h_flip": true,
+            "augment_v_flip": false,
+            "augment_rotation": "light",
+            "augment_color_jitter": false,
+            "imbalance": "none"
+          },
+          "metrics": {
+            "accuracy": 0.8027828343062792,
+            "f1": 0.8026021040510422,
+            "precision": 0.803785044676208,
+            "recall": 0.8027673741156888
+          },
+          "metrics_std": {
+            "accuracy_std": 0.0296575842843415,
+            "f1_std": 0.029713729079846672,
+            "precision_std": 0.029408758939692303,
+            "recall_std": 0.029632124065629612
+          },
+          "elapsed_sec": 82.428
+        },
+        {
+          "rank": 4,
+          "pipeline_name": "sz=64 | clr=grayscale | norm=standard | heq | hflip | rot=light",
+          "pipeline_config": {
+            "resize": 64,
+            "color_mode": "grayscale",
+            "normalization": "standard",
+            "histogram_eq": true,
+            "denoise": false,
+            "sharpen": false,
+            "augment_h_flip": true,
+            "augment_v_flip": false,
+            "augment_rotation": "light",
+            "augment_color_jitter": false,
+            "imbalance": "none"
+          },
+          "metrics": {
+            "accuracy": 0.7971606720649467,
+            "f1": 0.7970146983405861,
+            "precision": 0.798158589835159,
+            "recall": 0.797211818560133
+          },
+          "metrics_std": {
+            "accuracy_std": 0.005496028628237243,
+            "f1_std": 0.005521655003794075,
+            "precision_std": 0.005490680301048839,
+            "recall_std": 0.005530463079785397
+          },
+          "elapsed_sec": 57.987
+        },
+        {
+          "rank": 5,
+          "pipeline_name": "sz=64 | clr=rgb | norm=minmax | heq | dns | hflip | rot=moderate | jitter",
+          "pipeline_config": {
+            "resize": 64,
+            "color_mode": "rgb",
+            "normalization": "minmax",
+            "histogram_eq": true,
+            "denoise": true,
+            "sharpen": false,
+            "augment_h_flip": true,
+            "augment_v_flip": false,
+            "augment_rotation": "moderate",
+            "augment_color_jitter": true,
+            "imbalance": "none"
+          },
+          "metrics": {
+            "accuracy": 0.7714623480426003,
+            "f1": 0.7712483153286206,
+            "precision": 0.7723827526805569,
+            "recall": 0.7714481897627964
+          },
+          "metrics_std": {
+            "accuracy_std": 0.026632439095898963,
+            "f1_std": 0.02668115964626492,
+            "precision_std": 0.026771171347134318,
+            "recall_std": 0.02664619242657391
+          },
+          "elapsed_sec": 92.373
+        },
+        {
+          "rank": 6,
+          "pipeline_name": "sz=64 | clr=rgb | norm=minmax | heq | dns",
+          "pipeline_config": {
+            "resize": 64,
+            "color_mode": "rgb",
+            "normalization": "minmax",
+            "histogram_eq": true,
+            "denoise": true,
+            "sharpen": false,
+            "augment_h_flip": false,
+            "augment_v_flip": false,
+            "augment_rotation": "none",
+            "augment_color_jitter": false,
+            "imbalance": "none"
+          },
+          "metrics": {
+            "accuracy": 0.7614085744774339,
+            "f1": 0.7612058946488837,
+            "precision": 0.7620635041494589,
+            "recall": 0.7613774448605909
+          },
+          "metrics_std": {
+            "accuracy_std": 0.025311266500125953,
+            "f1_std": 0.025493736773040242,
+            "precision_std": 0.024763876734944807,
+            "recall_std": 0.025320874531623943
+          },
+          "elapsed_sec": 8.87
+        },
+        {
+          "rank": 7,
+          "pipeline_name": "sz=64 | clr=grayscale | norm=minmax | heq | dns",
+          "pipeline_config": {
+            "resize": 64,
+            "color_mode": "grayscale",
+            "normalization": "minmax",
+            "histogram_eq": true,
+            "denoise": true,
+            "sharpen": false,
+            "augment_h_flip": false,
+            "augment_v_flip": false,
+            "augment_rotation": "none",
+            "augment_color_jitter": false,
+            "imbalance": "none"
+          },
+          "metrics": {
+            "accuracy": 0.7606553260937794,
+            "f1": 0.7605367740933048,
+            "precision": 0.7612195129640553,
+            "recall": 0.7606408655846858
+          },
+          "metrics_std": {
+            "accuracy_std": 0.026923049031993374,
+            "f1_std": 0.026888964564488735,
+            "precision_std": 0.027269548819812462,
+            "recall_std": 0.026943560827680978
+          },
+          "elapsed_sec": 19.118
+        },
+        {
+          "rank": 8,
+          "pipeline_name": "sz=32 | clr=rgb | norm=minmax",
+          "pipeline_config": {
+            "resize": 32,
+            "color_mode": "rgb",
+            "normalization": "minmax",
+            "histogram_eq": false,
+            "denoise": false,
+            "sharpen": false,
+            "augment_h_flip": false,
+            "augment_v_flip": false,
+            "augment_rotation": "none",
+            "augment_color_jitter": false,
+            "imbalance": "none"
+          },
+          "metrics": {
+            "accuracy": 0.7360596740108384,
+            "f1": 0.7357071605865855,
+            "precision": 0.7372651047945716,
+            "recall": 0.7361506450270494
+          },
+          "metrics_std": {
+            "accuracy_std": 0.04160882209631412,
+            "f1_std": 0.04167850265556461,
+            "precision_std": 0.041807527647468104,
+            "recall_std": 0.04159518521134621
+          },
+          "elapsed_sec": 19.94
+        }
+      ],
+      "pipelines_tested": 8,
+      "best_pipeline": {
+        "resize": 128,
+        "color_mode": "rgb",
+        "normalization": "minmax",
+        "histogram_eq": false,
+        "denoise": false,
+        "sharpen": false,
+        "augment_h_flip": false,
+        "augment_v_flip": false,
+        "augment_rotation": "none",
+        "augment_color_jitter": false,
+        "imbalance": "none"
+      },
+      "best_score": 0.882497,
+      "best_metrics": {
+        "accuracy": 0.8825602075617769,
+        "f1": 0.8824971928362437,
+        "precision": 0.8834029644366675,
+        "recall": 0.8825717852684144
+      },
+      "selection_reasoning": "Selected by highest F1 = 0.8825 across 5 folds x 3 model(s); tie-broken by complexity then evaluation time.",
+      "memory_influence": {
+        "good_injections": 1,
+        "bad_avoidances": 0,
+        "meta_learner_weight": 0.05
+      },
+      "meta_learner_status": {
+        "is_mature": true,
+        "n_train": 8,
+        "weight": 0.05,
+        "min_to_use": 5,
+        "min_full_wt": 20,
+        "max_weight": 0.25
+      },
+      "outcome_summary": "Good result: F1 = 0.8825  |  8 pipeline(s) tested  |  best: sz=128 | clr=rgb | norm=minmax"
+    },
+    {
+      "id": "20260411_180733_030140",
+      "timestamp": "2026-04-11T18:07:33.030140",
+      "dataset": "image_(Alien and Predator)_2.zip",
+      "metric_priority": "f1",
+      "task_context": {
+        "task_type": "classification",
+        "domain": "",
+        "constraints": "",
+        "active_constraints": [],
+        "notes": "",
+        "modality": "Image",
+        "image_format": "",
+        "color_space": "",
+        "supervision": "supervised"
+      },
+      "profile_summary": {
+        "n_images": 894,
+        "n_classes": 2,
+        "imbalance_ratio": 1.0,
+        "min_class_size": 447,
+        "avg_height": 210.0,
+        "avg_width": 249.1,
+        "min_height": 130,
+        "min_width": 164,
+        "max_height": 308,
+        "max_width": 388,
+        "height_std": 43.16,
+        "width_std": 49.54,
+        "avg_brightness": 0.3475,
+        "brightness_std": 0.2459,
+        "avg_contrast": 0.2194,
+        "contrast_std": 0.0955,
+        "grayscale_ratio": 0.008,
+        "rgba_ratio": 0.0,
+        "dominant_color_channels": 3,
+        "avg_file_size_kb": 8.1,
+        "n_corrupt": 0,
+        "has_varied_sizes": true,
+        "has_low_contrast": false,
+        "has_high_contrast_variance": true,
+        "has_varied_brightness": true,
+        "has_grayscale_images": true,
+        "has_mostly_grayscale": false,
+        "has_small_images": false,
+        "has_large_images": false,
+        "is_imbalanced": false,
+        "is_highly_imbalanced": false,
+        "is_uniform_size": false
+      },
+      "all_pipelines_tested": [
+        {
+          "rank": 1,
+          "pipeline_name": "sz=128 | clr=rgb | norm=minmax",
+          "pipeline_config": {
+            "resize": 128,
+            "color_mode": "rgb",
+            "normalization": "minmax",
+            "histogram_eq": false,
+            "denoise": false,
+            "sharpen": false,
+            "augment_h_flip": false,
+            "augment_v_flip": false,
+            "augment_rotation": "none",
+            "augment_color_jitter": false,
+            "imbalance": "none"
+          },
+          "metrics": {
+            "accuracy": 0.8825602075617769,
+            "f1": 0.8824971928362437,
+            "precision": 0.8834029644366675,
+            "recall": 0.8825717852684144
+          },
+          "metrics_std": {
+            "accuracy_std": 0.0009302543180583418,
+            "f1_std": 0.0009517945764957869,
+            "precision_std": 0.0008298616076488246,
+            "recall_std": 0.0009685401519130277
+          },
+          "elapsed_sec": 10.096
+        },
+        {
+          "rank": 2,
+          "pipeline_name": "sz=64 | clr=rgb | norm=standard",
+          "pipeline_config": {
+            "resize": 64,
+            "color_mode": "rgb",
+            "normalization": "standard",
+            "histogram_eq": false,
+            "denoise": false,
+            "sharpen": false,
+            "augment_h_flip": false,
+            "augment_v_flip": false,
+            "augment_rotation": "none",
+            "augment_color_jitter": false,
+            "imbalance": "none"
+          },
+          "metrics": {
+            "accuracy": 0.8288766137300442,
+            "f1": 0.8287631063024855,
+            "precision": 0.8297859913661889,
+            "recall": 0.8289013732833957
+          },
+          "metrics_std": {
+            "accuracy_std": 0.0206401029823168,
+            "f1_std": 0.020691326118411055,
+            "precision_std": 0.020260426450810498,
+            "recall_std": 0.02056816277289912
+          },
+          "elapsed_sec": 9.442
+        },
+        {
+          "rank": 3,
+          "pipeline_name": "sz=64 | clr=rgb | norm=minmax | heq | hflip | rot=light",
+          "pipeline_config": {
+            "resize": 64,
+            "color_mode": "rgb",
+            "normalization": "minmax",
+            "histogram_eq": true,
+            "denoise": false,
+            "sharpen": false,
+            "augment_h_flip": true,
+            "augment_v_flip": false,
+            "augment_rotation": "light",
+            "augment_color_jitter": false,
+            "imbalance": "none"
+          },
+          "metrics": {
+            "accuracy": 0.8027828343062792,
+            "f1": 0.8026021040510422,
+            "precision": 0.803785044676208,
+            "recall": 0.8027673741156888
+          },
+          "metrics_std": {
+            "accuracy_std": 0.0296575842843415,
+            "f1_std": 0.029713729079846672,
+            "precision_std": 0.029408758939692303,
+            "recall_std": 0.029632124065629612
+          },
+          "elapsed_sec": 45.077
+        },
+        {
+          "rank": 4,
+          "pipeline_name": "sz=64 | clr=grayscale | norm=standard | heq | hflip | rot=light",
+          "pipeline_config": {
+            "resize": 64,
+            "color_mode": "grayscale",
+            "normalization": "standard",
+            "histogram_eq": true,
+            "denoise": false,
+            "sharpen": false,
+            "augment_h_flip": true,
+            "augment_v_flip": false,
+            "augment_rotation": "light",
+            "augment_color_jitter": false,
+            "imbalance": "none"
+          },
+          "metrics": {
+            "accuracy": 0.7971606720649467,
+            "f1": 0.7970146983405861,
+            "precision": 0.798158589835159,
+            "recall": 0.797211818560133
+          },
+          "metrics_std": {
+            "accuracy_std": 0.005496028628237243,
+            "f1_std": 0.005521655003794075,
+            "precision_std": 0.005490680301048839,
+            "recall_std": 0.005530463079785397
+          },
+          "elapsed_sec": 71.859
+        },
+        {
+          "rank": 5,
+          "pipeline_name": "sz=64 | clr=rgb | norm=minmax | heq | dns | hflip | rot=moderate | jitter",
+          "pipeline_config": {
+            "resize": 64,
+            "color_mode": "rgb",
+            "normalization": "minmax",
+            "histogram_eq": true,
+            "denoise": true,
+            "sharpen": false,
+            "augment_h_flip": true,
+            "augment_v_flip": false,
+            "augment_rotation": "moderate",
+            "augment_color_jitter": true,
+            "imbalance": "none"
+          },
+          "metrics": {
+            "accuracy": 0.7714623480426003,
+            "f1": 0.7712483153286206,
+            "precision": 0.7723827526805569,
+            "recall": 0.7714481897627964
+          },
+          "metrics_std": {
+            "accuracy_std": 0.026632439095898963,
+            "f1_std": 0.02668115964626492,
+            "precision_std": 0.026771171347134318,
+            "recall_std": 0.02664619242657391
+          },
+          "elapsed_sec": 64.029
+        },
+        {
+          "rank": 6,
+          "pipeline_name": "sz=64 | clr=rgb | norm=minmax | heq | dns",
+          "pipeline_config": {
+            "resize": 64,
+            "color_mode": "rgb",
+            "normalization": "minmax",
+            "histogram_eq": true,
+            "denoise": true,
+            "sharpen": false,
+            "augment_h_flip": false,
+            "augment_v_flip": false,
+            "augment_rotation": "none",
+            "augment_color_jitter": false,
+            "imbalance": "none"
+          },
+          "metrics": {
+            "accuracy": 0.7614085744774339,
+            "f1": 0.7612058946488837,
+            "precision": 0.7620635041494589,
+            "recall": 0.7613774448605909
+          },
+          "metrics_std": {
+            "accuracy_std": 0.025311266500125953,
+            "f1_std": 0.025493736773040242,
+            "precision_std": 0.024763876734944807,
+            "recall_std": 0.025320874531623943
+          },
+          "elapsed_sec": 8.347
+        },
+        {
+          "rank": 7,
+          "pipeline_name": "sz=64 | clr=grayscale | norm=minmax | heq | dns",
+          "pipeline_config": {
+            "resize": 64,
+            "color_mode": "grayscale",
+            "normalization": "minmax",
+            "histogram_eq": true,
+            "denoise": true,
+            "sharpen": false,
+            "augment_h_flip": false,
+            "augment_v_flip": false,
+            "augment_rotation": "none",
+            "augment_color_jitter": false,
+            "imbalance": "none"
+          },
+          "metrics": {
+            "accuracy": 0.7606553260937794,
+            "f1": 0.7605367740933048,
+            "precision": 0.7612195129640553,
+            "recall": 0.7606408655846858
+          },
+          "metrics_std": {
+            "accuracy_std": 0.026923049031993374,
+            "f1_std": 0.026888964564488735,
+            "precision_std": 0.027269548819812462,
+            "recall_std": 0.026943560827680978
+          },
+          "elapsed_sec": 8.479
+        },
+        {
+          "rank": 8,
+          "pipeline_name": "sz=32 | clr=rgb | norm=minmax",
+          "pipeline_config": {
+            "resize": 32,
+            "color_mode": "rgb",
+            "normalization": "minmax",
+            "histogram_eq": false,
+            "denoise": false,
+            "sharpen": false,
+            "augment_h_flip": false,
+            "augment_v_flip": false,
+            "augment_rotation": "none",
+            "augment_color_jitter": false,
+            "imbalance": "none"
+          },
+          "metrics": {
+            "accuracy": 0.7360596740108384,
+            "f1": 0.7357071605865855,
+            "precision": 0.7372651047945716,
+            "recall": 0.7361506450270494
+          },
+          "metrics_std": {
+            "accuracy_std": 0.04160882209631412,
+            "f1_std": 0.04167850265556461,
+            "precision_std": 0.041807527647468104,
+            "recall_std": 0.04159518521134621
+          },
+          "elapsed_sec": 9.255
+        }
+      ],
+      "pipelines_tested": 8,
+      "best_pipeline": {
+        "resize": 128,
+        "color_mode": "rgb",
+        "normalization": "minmax",
+        "histogram_eq": false,
+        "denoise": false,
+        "sharpen": false,
+        "augment_h_flip": false,
+        "augment_v_flip": false,
+        "augment_rotation": "none",
+        "augment_color_jitter": false,
+        "imbalance": "none"
+      },
+      "best_score": 0.882497,
+      "best_metrics": {
+        "accuracy": 0.8825602075617769,
+        "f1": 0.8824971928362437,
+        "precision": 0.8834029644366675,
+        "recall": 0.8825717852684144
+      },
+      "selection_reasoning": "Selected by highest F1 = 0.8825 across 5 folds x 3 model(s); tie-broken by complexity then evaluation time.",
+      "memory_influence": {
+        "good_injections": 2,
+        "bad_avoidances": 0,
+        "meta_learner_weight": 0.183
+      },
+      "meta_learner_status": {
+        "is_mature": true,
+        "n_train": 16,
+        "weight": 0.183,
+        "min_to_use": 5,
+        "min_full_wt": 20,
+        "max_weight": 0.25
+      },
+      "outcome_summary": "Good result: F1 = 0.8825  |  8 pipeline(s) tested  |  best: sz=128 | clr=rgb | norm=minmax"
+    }
+  ]
+}

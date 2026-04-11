@@ -74,8 +74,9 @@ class ReportViewMixin:
         prof    = report.get("profile_summary", {})
         best    = report.get("best_pipeline", {})
         results = report.get("results", [])
-        metric  = cfg.get("metric", "f1")
-        P       = 22   # padx for all sections
+        metric   = cfg.get("metric", "f1")
+        P        = 22   # padx for all sections
+        is_image = report.get("modality") == "Image" or "n_images" in prof
 
         ts_raw = report.get("timestamp", "")
         try:
@@ -144,13 +145,15 @@ class ReportViewMixin:
                 try:
                     from ui.pdf_exporter import (
                         _chart_dataset_composition, _chart_profile_issues,
+                        _chart_image_class_distribution, _chart_image_quality_flags,
+                        _chart_image_dimensions,
                         _chart_metrics_overview, _chart_per_model,
                         _chart_pipeline_rankings,
                     )
                     import matplotlib
                     matplotlib.use("Agg")
                     import os
-                    
+
                     def _lc(fn, *a):
                         try:
                             p = fn(*a)
@@ -164,19 +167,29 @@ class ReportViewMixin:
                     _bm = best.get("metrics", {})
                     _bs = best.get("metrics_std", {})
                     _bp = best.get("per_model_metrics", {})
-                    
-                    c1 = _lc(_chart_dataset_composition, prof)
-                    self.after(0, lambda: _inject_chart("_c_comp", c1))
-                    
-                    c2 = _lc(_chart_profile_issues, prof)
-                    self.after(0, lambda: _inject_chart("_c_qual", c2))
-                    
+
+                    if is_image:
+                        c1 = _lc(_chart_image_class_distribution, prof)
+                        self.after(0, lambda: _inject_chart("_c_comp", c1))
+
+                        c2 = _lc(_chart_image_quality_flags, prof)
+                        self.after(0, lambda: _inject_chart("_c_qual", c2))
+
+                        c_dims = _lc(_chart_image_dimensions, prof)
+                        self.after(0, lambda: _inject_chart("_c_dims", c_dims))
+                    else:
+                        c1 = _lc(_chart_dataset_composition, prof)
+                        self.after(0, lambda: _inject_chart("_c_comp", c1))
+
+                        c2 = _lc(_chart_profile_issues, prof)
+                        self.after(0, lambda: _inject_chart("_c_qual", c2))
+
                     c3 = _lc(_chart_metrics_overview, _bm, _bs, metric)
                     self.after(0, lambda: _inject_chart("_c_met", c3))
-                    
+
                     c4 = _lc(_chart_per_model, _bp)
                     self.after(0, lambda: _inject_chart("_c_pmd", c4))
-                    
+
                     c5 = _lc(_chart_pipeline_rankings, results, metric)
                     self.after(0, lambda: _inject_chart("_c_rank", c5))
                 except Exception: pass
@@ -215,8 +228,11 @@ class ReportViewMixin:
         c.pack(fill="x", padx=P, pady=(0, 4))
         kv_row(c, "Run timestamp",     ts_fmt)
         kv_row(c, "Dataset",           cfg.get("data_path", "—"))
-        kv_row(c, "Target column",     cfg.get("target", "—"))
+        if cfg.get("target"):
+            kv_row(c, "Target column",     cfg.get("target", "—"))
         kv_row(c, "Priority metric",   cfg.get("metric", "—").upper())
+        if report.get("modality"):
+            kv_row(c, "Modality",      report.get("modality"))
         kv_row(c, "Pipelines tested",  str(report.get("pipelines_tested", "—")))
         kv_row(c, "Models / pipeline", str(report.get("n_models", "—")))
 
@@ -240,32 +256,73 @@ class ReportViewMixin:
         sec_hdr("2   Dataset Profile")
         c = _card(scroll)
         c.pack(fill="x", padx=P, pady=(0, 4))
-        kv_row(c, "Rows",
-               f"{prof.get('n_rows', '?'):,}")
-        kv_row(c, "Feature columns",
-               f"{prof.get('n_cols','?')}  (numeric={prof.get('num_cols_count','?')}, "
-               f"categorical={prof.get('cat_cols_count','?')})")
-        kv_row(c, "Missing ratio",
-               f"{prof.get('total_missing_ratio',0)*100:.1f}%  "
-               f"({prof.get('high_missing_cols_count',0)} cols >50% missing)")
-        kv_row(c, "Duplicate rows",        str(prof.get("n_duplicates", 0)))
-        kv_row(c, "Classes",
-               f"{prof.get('n_classes','?')}  "
-               f"(imbalance ratio = {prof.get('imbalance_ratio',1):.1f}x, "
-               f"min class = {prof.get('min_class_size','?')} samples)")
-        kv_row(c, "High-outlier columns",  str(prof.get("high_outlier_cols_count", 0)))
-        kv_row(c, "High-skew columns",     str(prof.get("high_skew_cols_count", 0)))
-        kv_row(c, "High-kurtosis columns", str(prof.get("high_kurtosis_cols_count", 0)))
-        kv_row(c, "High-cardinality cols", str(prof.get("high_cardinality_cols_count", 0)))
-        kv_row(c, "Binary numeric cols",   str(prof.get("binary_num_cols_count", 0)))
-        kv_row(c, "Corr. pairs |r|>0.85", str(prof.get("n_high_corr_pairs", 0)))
-        kv_row(c, "Sparse features",
-               "Yes" if prof.get("has_sparse_features") else "No")
-        kv_row(c, "Multicollinearity",
-               "Yes" if prof.get("has_multicollinearity") else "No")
 
-        _add_chart("_c_comp", "Feature composition")
-        _add_chart("_c_qual", "Dataset quality indicators")
+        if is_image:
+            kv_row(c, "Images",
+                   f"{prof.get('n_images', '?'):,}")
+            kv_row(c, "Classes",
+                   f"{prof.get('n_classes', '?')}  "
+                   f"(imbalance ratio = {prof.get('imbalance_ratio', 1):.1f}x, "
+                   f"min class = {prof.get('min_class_size', '?')} samples)")
+            kv_row(c, "Avg dimensions",
+                   f"{prof.get('avg_height', '?'):.0f} x {prof.get('avg_width', '?'):.0f}")
+            kv_row(c, "Dimension range",
+                   f"[{prof.get('min_height', '?')}x{prof.get('min_width', '?')}] "
+                   f"to [{prof.get('max_height', '?')}x{prof.get('max_width', '?')}]")
+            kv_row(c, "Size uniformity",
+                   "Uniform" if prof.get("is_uniform_size") else
+                   f"Varied  (h_std={prof.get('height_std', 0):.1f}, w_std={prof.get('width_std', 0):.1f})")
+            ch_map = {1: "Grayscale", 3: "RGB", 4: "RGBA"}
+            ch_label = ch_map.get(prof.get("dominant_color_channels", 3), "RGB")
+            kv_row(c, "Dominant color mode",
+                   f"{ch_label}  (grayscale={prof.get('grayscale_ratio', 0):.0%})")
+            kv_row(c, "Avg brightness",
+                   f"{prof.get('avg_brightness', 0):.3f}  (std={prof.get('brightness_std', 0):.3f})")
+            kv_row(c, "Avg contrast",
+                   f"{prof.get('avg_contrast', 0):.3f}  (std={prof.get('contrast_std', 0):.3f})")
+            kv_row(c, "Avg file size",
+                   f"{prof.get('avg_file_size_kb', 0):.1f} KB")
+            kv_row(c, "Corrupt images",        str(prof.get("n_corrupt", 0)))
+            kv_row(c, "Low contrast",
+                   "Yes" if prof.get("has_low_contrast") else "No")
+            kv_row(c, "Varied brightness",
+                   "Yes" if prof.get("has_varied_brightness") else "No")
+            kv_row(c, "Small images (<32px)",
+                   "Yes" if prof.get("has_small_images") else "No")
+            kv_row(c, "Large images (>1024px)",
+                   "Yes" if prof.get("has_large_images") else "No")
+        else:
+            kv_row(c, "Rows",
+                   f"{prof.get('n_rows', '?'):,}")
+            kv_row(c, "Feature columns",
+                   f"{prof.get('n_cols','?')}  (numeric={prof.get('num_cols_count','?')}, "
+                   f"categorical={prof.get('cat_cols_count','?')})")
+            kv_row(c, "Missing ratio",
+                   f"{prof.get('total_missing_ratio',0)*100:.1f}%  "
+                   f"({prof.get('high_missing_cols_count',0)} cols >50% missing)")
+            kv_row(c, "Duplicate rows",        str(prof.get("n_duplicates", 0)))
+            kv_row(c, "Classes",
+                   f"{prof.get('n_classes','?')}  "
+                   f"(imbalance ratio = {prof.get('imbalance_ratio',1):.1f}x, "
+                   f"min class = {prof.get('min_class_size','?')} samples)")
+            kv_row(c, "High-outlier columns",  str(prof.get("high_outlier_cols_count", 0)))
+            kv_row(c, "High-skew columns",     str(prof.get("high_skew_cols_count", 0)))
+            kv_row(c, "High-kurtosis columns", str(prof.get("high_kurtosis_cols_count", 0)))
+            kv_row(c, "High-cardinality cols", str(prof.get("high_cardinality_cols_count", 0)))
+            kv_row(c, "Binary numeric cols",   str(prof.get("binary_num_cols_count", 0)))
+            kv_row(c, "Corr. pairs |r|>0.85", str(prof.get("n_high_corr_pairs", 0)))
+            kv_row(c, "Sparse features",
+                   "Yes" if prof.get("has_sparse_features") else "No")
+            kv_row(c, "Multicollinearity",
+                   "Yes" if prof.get("has_multicollinearity") else "No")
+
+        if is_image:
+            _add_chart("_c_comp", "Class distribution")
+            _add_chart("_c_qual", "Image quality flags")
+            _add_chart("_c_dims", "Image dimension statistics")
+        else:
+            _add_chart("_c_comp", "Feature composition")
+            _add_chart("_c_qual", "Dataset quality indicators")
 
         # Section 3: Best Pipeline
         sec_hdr("3   Selected Best Pipeline", color=SUCCESS)

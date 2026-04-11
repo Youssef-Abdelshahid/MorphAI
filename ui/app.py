@@ -52,7 +52,7 @@ from ui.constants import (
     NAV_W, POLL_MS,
 )
 from ui.helpers import _open_file, _hsep
-from ui.worker import AgentWorker
+from ui.worker import AgentWorker, ImageAgentWorker
 from ui.views.run_view import RunViewMixin
 from ui.views.report_view import ReportViewMixin
 from ui.views.console_view import ConsoleViewMixin
@@ -234,9 +234,24 @@ class App(
 
     def _on_browse(self) -> None:
         modality = self._modality_var.get()
+
+        if modality == "Image":
+            path = filedialog.askopenfilename(
+                title="Select image dataset zip archive",
+                filetypes=[("Zip archives", "*.zip"), ("All files", "*.*")],
+            )
+            if not path:
+                return
+            self._csv_path = Path(path)
+            name = self._csv_path.name
+            self._file_lbl.configure(
+                text=(name if len(name) <= 40 else name[:37] + "…"),
+                text_color=TXT,
+            )
+            return
+
         _filetypes_map = {
             "CSV / Tabular":   [("CSV files", "*.csv"), ("All files", "*.*")],
-            "Image":           [("Image files", "*.jpg *.jpeg *.png *.tif *.tiff *.bmp *.webp"), ("All files", "*.*")],
             "Audio":           [("Audio files", "*.wav *.mp3 *.flac *.ogg *.m4a"), ("All files", "*.*")],
             "Text":            [("Text files", "*.txt *.csv *.json *.jsonl"), ("All files", "*.*")],
             "Semi-structured": [("Structured files", "*.json *.xml *.yaml *.yml *.log"), ("All files", "*.*")],
@@ -244,7 +259,6 @@ class App(
         }
         _titles_map = {
             "CSV / Tabular":   "Select CSV dataset",
-            "Image":           "Select image file or dataset",
             "Audio":           "Select audio file or dataset",
             "Text":            "Select text dataset",
             "Semi-structured": "Select semi-structured dataset",
@@ -274,7 +288,40 @@ class App(
             self._switch_view("console")
             return
 
-        if modality != "CSV / Tabular":
+        if modality == "Image":
+            ctx = self._get_context_fields()
+            img_metric = ctx.get("metric", "f1")
+            if not img_metric or img_metric == "— select —":
+                img_metric = "f1"
+
+            self._cleaned_path = None
+            self._report_data  = None
+            self._results_frame.pack_forget()
+            self._step_lbl.configure(text="")
+            self._set_status("Running", WARN)
+
+            from src.image.config import _IMG_TASK_BACKEND
+            raw_task = ctx.get("task_type", "")
+            backend_task = _IMG_TASK_BACKEND.get(raw_task, "classification")
+
+            worker = ImageAgentWorker(
+                self._q, self._csv_path, img_metric,
+                task_type=backend_task,
+                domain=ctx.get("domain", ""),
+                constraints=ctx.get("constraints", ""),
+                notes=ctx.get("notes", ""),
+                image_format=ctx.get("image_format", ""),
+                color_space=ctx.get("color_space", ""),
+            )
+            self._thread = threading.Thread(target=worker.run, daemon=True)
+            self._thread.start()
+
+            self._clear_context_fields()
+            self._csv_path = None
+            self._file_lbl.configure(text="No file selected", text_color=TXT_MUTED)
+            return
+
+        if modality not in ("CSV / Tabular", "Image"):
             ctx = self._get_context_fields()
             self._clog(f"[{modality}]  Run context captured.", "INFO")
             for k, v in ctx.items():
@@ -327,7 +374,10 @@ class App(
         self._report_data  = msg["report"]
         self._set_status("Done", SUCCESS)
         self._step_lbl.configure(text="All steps complete.")
-        self._show_run_results(msg)
+        if msg.get("modality") == "Image":
+            self._show_image_run_results(msg)
+        else:
+            self._show_run_results(msg)
         self._render_report(msg["report"])
         self._refresh_history()
 

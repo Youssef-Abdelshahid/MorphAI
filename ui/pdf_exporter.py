@@ -330,6 +330,94 @@ def _chart_dataset_composition(prof: dict) -> Optional[str]:
     return _save_fig(fig)
 
 
+def _chart_image_class_distribution(prof: dict) -> Optional[str]:
+    class_counts = prof.get("class_counts", {})
+    if not class_counts:
+        return None
+    _set_rcparams()
+    labels = sorted(class_counts.keys())
+    values = [class_counts[l] for l in labels]
+    max_v = max(values)
+    clrs = [_M_GREEN if v == max_v else _M_BLUE for v in values]
+    n = len(labels)
+    fig, ax = plt.subplots(figsize=(8.5, max(2.5, n * 0.45 + 1.0)))
+    bars = ax.barh(range(n), values, color=clrs, height=0.42)
+    ax.set_yticks(range(n))
+    ax.set_yticklabels(labels, fontsize=10)
+    ax.invert_yaxis()
+    ax.set_xlabel("Images", fontsize=13, labelpad=8)
+    ax.set_title("Class Distribution", fontsize=15, fontweight="bold", pad=14)
+    _style_ax(ax, grid="x")
+    try:
+        ax.bar_label(bars, labels=[str(v) for v in values], padding=4, fontsize=9)
+    except Exception:
+        pass
+    ax.margins(x=0.16)
+    fig.tight_layout()
+    return _save_fig(fig)
+
+
+def _chart_image_quality_flags(prof: dict) -> Optional[str]:
+    items = [
+        ("Low contrast",            1 if prof.get("has_low_contrast") else 0),
+        ("Varied brightness",       1 if prof.get("has_varied_brightness") else 0),
+        ("Varied sizes",            1 if prof.get("has_varied_sizes") else 0),
+        ("Small images (<32px)",    1 if prof.get("has_small_images") else 0),
+        ("Large images (>1024px)",  1 if prof.get("has_large_images") else 0),
+        ("Corrupt images",          1 if prof.get("n_corrupt", 0) > 0 else 0),
+    ]
+    if not any(v for _, v in items):
+        return None
+    _set_rcparams()
+    labels = [i[0] for i in items]
+    values = [i[1] for i in items]
+    clrs = [_M_ORANGE if v else _M_MUTED for v in values]
+    fig, ax = plt.subplots(figsize=(8.5, 3.2))
+    ax.barh(labels, values, color=clrs, height=0.42)
+    ax.set_xlim(0, 1.4)
+    ax.set_xticks([0, 1])
+    ax.set_xticklabels(["Not detected", "Detected"], fontsize=11)
+    ax.invert_yaxis()
+    ax.set_title("Image Quality Flags", fontsize=15, fontweight="bold", pad=14)
+    _style_ax(ax, grid="x")
+    ax.margins(x=0.08)
+    fig.tight_layout()
+    return _save_fig(fig)
+
+
+def _chart_image_dimensions(prof: dict) -> Optional[str]:
+    min_h = prof.get("min_height", 0)
+    avg_h = prof.get("avg_height", 0)
+    max_h = prof.get("max_height", 0)
+    min_w = prof.get("min_width", 0)
+    avg_w = prof.get("avg_width", 0)
+    max_w = prof.get("max_width", 0)
+    if not any([min_h, avg_h, max_h, min_w, avg_w, max_w]):
+        return None
+    _set_rcparams()
+    x = np.arange(2)
+    width = 0.22
+    fig, ax = plt.subplots(figsize=(8.5, 3.5))
+    bars_min = ax.bar(x - width, [min_h, min_w], width, label="Min", color=_M_MUTED, alpha=0.85)
+    bars_avg = ax.bar(x,         [avg_h, avg_w], width, label="Avg", color=_M_BLUE,  alpha=0.9)
+    bars_max = ax.bar(x + width, [max_h, max_w], width, label="Max", color=_M_PURPLE, alpha=0.85)
+    ax.set_xticks(x)
+    ax.set_xticklabels(["Height (px)", "Width (px)"], fontsize=13)
+    ax.set_ylabel("Pixels", fontsize=13, labelpad=8)
+    ax.set_title("Image Dimension Statistics", fontsize=15, fontweight="bold", pad=38)
+    for bars in [bars_min, bars_avg, bars_max]:
+        try:
+            ax.bar_label(bars, labels=[f"{b.get_height():.0f}" for b in bars],
+                         padding=3, fontsize=8)
+        except Exception:
+            pass
+    ax.legend(title=None, fontsize=12, framealpha=0.9, edgecolor="#cbd5e1",
+              loc="lower center", bbox_to_anchor=(0.5, 1.01), ncol=3)
+    _style_ax(ax, grid="y")
+    fig.tight_layout()
+    return _save_fig(fig)
+
+
 # ── Document ──────────────────────────────────────────────────────────────────
 
 def _readable_pipeline(name: str) -> str:
@@ -398,7 +486,10 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
     n_pipelines  = len(results)
     n_rows_prof  = prof.get("n_rows", 0)
     n_cols_prof  = prof.get("n_cols", 0)
-    best_name    = best.get("name", "—")
+    best_name     = best.get("name", "—")
+    is_image      = report.get("modality") == "Image"
+    n_images_prof = prof.get("n_images", 0)
+    n_classes_prof = prof.get("n_classes", 0)
     # ── Document ──────────────────────────────────────────────────────────
     doc = SimpleDocTemplate(
         str(output_path),
@@ -457,12 +548,20 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
 
         # Metadata block
         meta_y = sep_y - 0.8 * cm
-        meta_items = [
-            ("Dataset",         ds_name),
-            ("Target column",   cfg.get("target", "—")),
-            ("Priority metric", cfg.get("metric", "—").upper()),
-            ("Generated",       ts_fmt),
-        ]
+        if is_image:
+            meta_items = [
+                ("Dataset",         ds_name),
+                ("Modality",        "Image"),
+                ("Priority metric", cfg.get("metric", "—").upper()),
+                ("Generated",       ts_fmt),
+            ]
+        else:
+            meta_items = [
+                ("Dataset",         ds_name),
+                ("Target column",   cfg.get("target", "—")),
+                ("Priority metric", cfg.get("metric", "—").upper()),
+                ("Generated",       ts_fmt),
+            ]
         for i, (label, value) in enumerate(meta_items):
             y = meta_y - i * 0.68 * cm
             canvas.setFont("Helvetica-Bold", 9.5)
@@ -637,9 +736,20 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
     chart_pipeline  = _chart_pipeline_rankings(results, metric)
     chart_metrics   = _chart_metrics_overview(m, std, metric)
     chart_per_model = _chart_per_model(pmt)
-    chart_profile   = _chart_profile_issues(prof)
-    chart_comp      = _chart_dataset_composition(prof)
-    for c in [chart_pipeline, chart_metrics, chart_per_model, chart_profile, chart_comp]:
+    if is_image:
+        chart_class_dist = _chart_image_class_distribution(prof)
+        chart_quality    = _chart_image_quality_flags(prof)
+        chart_dims       = _chart_image_dimensions(prof)
+        chart_profile    = None
+        chart_comp       = None
+    else:
+        chart_class_dist = None
+        chart_quality    = None
+        chart_dims       = None
+        chart_profile    = _chart_profile_issues(prof)
+        chart_comp       = _chart_dataset_composition(prof)
+    for c in [chart_pipeline, chart_metrics, chart_per_model, chart_profile, chart_comp,
+              chart_class_dist, chart_quality, chart_dims]:
         if c:
             tmp_files.append(c)
 
@@ -660,7 +770,9 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
                   _C_KPI_BG, _C_KPI_VAL, _C_KPI_BRD, width=kw3),
         _kpi_card("Candidates", str(n_pipelines), "pipelines evaluated",
                   _C_KPI_BG, _C_KPI_VAL, _C_KPI_BRD, width=kw3),
-        _kpi_card("Dataset",    f"{n_rows_prof:,} rows", f"{n_cols_prof} features",
+        _kpi_card("Dataset",
+                  f"{n_images_prof:,} images" if is_image else f"{n_rows_prof:,} rows",
+                  f"{n_classes_prof} classes" if is_image else f"{n_cols_prof} features",
                   _C_KPI_BG, _C_KPI_VAL, _C_KPI_BRD, width=kw3),
     ]], colWidths=[kw3] * 3)
     kpi_tbl.setStyle(TableStyle([
@@ -675,15 +787,25 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
 
     # Best Pipeline — KPI-card-consistent step grid (same width as KPI section)
     _step_lm = {
-        "num":   "Numeric Imputation",
-        "cat":   "Categorical Imputation",
-        "scale": "Feature Scaling",
-        "enc":   "Encoding",
-        "pwr":   "Power Transform",
-        "cl":    "Classifier",
-        "imb":   "Imbalance Handling",
-        "dedup": "Deduplication",
-        "clip":  "Outlier Clipping",
+        "num":    "Numeric Imputation",
+        "cat":    "Categorical Imputation",
+        "scale":  "Feature Scaling",
+        "enc":    "Encoding",
+        "pwr":    "Power Transform",
+        "cl":     "Classifier",
+        "imb":    "Imbalance Handling",
+        "dedup":  "Deduplication",
+        "clip":   "Outlier Clipping",
+        "sz":     "Resize",
+        "clr":    "Color Mode",
+        "norm":   "Normalization",
+        "heq":    "Histogram Equalization",
+        "dns":    "Denoise",
+        "shp":    "Sharpen",
+        "hflip":  "H-Flip Augmentation",
+        "vflip":  "V-Flip Augmentation",
+        "rot":    "Rotation Augmentation",
+        "jitter": "Color Jitter",
     }
     _kpi_val10_sty = _sty("kv10", fontSize=10, textColor=_C_KPI_VAL,
                            fontName="Helvetica-Bold", leading=13)
@@ -723,7 +845,12 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
     ov_rows = [
         [Paragraph("Field", pipe_hdr_sty), Paragraph("Value", pipe_hdr_sty)],
         ["Dataset",           ds_name],
-        ["Target column",     cfg.get("target", "—")],
+    ]
+    if is_image:
+        ov_rows.append(["Modality", "Image"])
+    else:
+        ov_rows.append(["Target column", cfg.get("target", "—")])
+    ov_rows += [
         ["Priority metric",   cfg.get("metric", "—").upper()],
         ["Pipelines tested",  str(report.get("pipelines_tested", "—"))],
         ["Models / pipeline", str(report.get("n_models", "—"))],
@@ -757,41 +884,77 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
     story.append(_section_bar("02", "Dataset Profile"))
     story.append(Spacer(1, 0.45 * cm))
 
-    num_c = prof.get("num_cols_count", 0)
-    cat_c = prof.get("cat_cols_count", 0)
-    prof_rows = [
-        [Paragraph("Metric", pipe_hdr_sty), Paragraph("Value", pipe_hdr_sty),
-         Paragraph("Metric", pipe_hdr_sty), Paragraph("Value", pipe_hdr_sty)],
-        ["Rows",                f"{n_rows_prof:,}",
-         "Feature columns",     f"{n_cols_prof}  (num={num_c}, cat={cat_c})"],
-        ["Missing ratio",       f"{prof.get('total_missing_ratio',0)*100:.1f}%",
-         "Cols >50% missing",   str(prof.get("high_missing_cols_count", 0))],
-        ["Duplicate rows",      str(prof.get("n_duplicates", 0)),
-         "Classes",             f"{prof.get('n_classes','?')}  "
-                                f"(imbalance {prof.get('imbalance_ratio',1):.1f}x)"],
-        ["High-outlier cols",   str(prof.get("high_outlier_cols_count", 0)),
-         "High-skew cols",      str(prof.get("high_skew_cols_count", 0))],
-        ["High-kurtosis cols",  str(prof.get("high_kurtosis_cols_count", 0)),
-         "High-cardinality",    str(prof.get("high_cardinality_cols_count", 0))],
-        ["Binary numeric",      str(prof.get("binary_num_cols_count", 0)),
-         "Corr. pairs |r|>0.85",str(prof.get("n_high_corr_pairs", 0))],
-        ["Constant/near-const", str(prof.get("constant_cols_count", 0)),
-         "Sparse features",     "Yes" if prof.get("has_sparse_features") else "No"],
-        ["Multicollinearity",   "Yes" if prof.get("has_multicollinearity") else "No",
-         "Min class size",      str(prof.get("min_class_size", "?"))],
-    ]
-    hw = available_w / 4
-    # Right-align value columns
-    prof_extra = [("ALIGN", (1, 1), (1, -1), "RIGHT"), ("ALIGN", (3, 1), (3, -1), "RIGHT")]
-    story.append(_tbl(prof_rows, [hw*1.15, hw*0.85, hw*1.15, hw*0.85], extra=prof_extra))
-    story.append(Spacer(1, 0.5 * cm))
-
-    if chart_comp:
-        story.append(_fw_image(chart_comp,    available_w))
-        story.append(Spacer(1, 0.4 * cm))
-    if chart_profile:
-        story.append(_fw_image(chart_profile, available_w))
-        story.append(Spacer(1, 0.3 * cm))
+    if is_image:
+        ch_map = {1: "Grayscale", 3: "RGB", 4: "RGBA"}
+        ch_label = ch_map.get(prof.get("dominant_color_channels", 3), "RGB")
+        img_prof_rows = [
+            [Paragraph("Metric", pipe_hdr_sty), Paragraph("Value", pipe_hdr_sty),
+             Paragraph("Metric", pipe_hdr_sty), Paragraph("Value", pipe_hdr_sty)],
+            ["Images",           f"{n_images_prof:,}",
+             "Classes",          f"{prof.get('n_classes','?')}  "
+                                 f"(imbalance {prof.get('imbalance_ratio',1):.1f}x)"],
+            ["Avg dimensions",   f"{prof.get('avg_height',0):.0f} x {prof.get('avg_width',0):.0f} px",
+             "Dimension range",  f"[{prof.get('min_height','?')}x{prof.get('min_width','?')}] to "
+                                 f"[{prof.get('max_height','?')}x{prof.get('max_width','?')}]"],
+            ["Size uniformity",  "Uniform" if prof.get("is_uniform_size") else
+                                 f"Varied  (h_std={prof.get('height_std',0):.1f})",
+             "Dominant color",   f"{ch_label}  (gray={prof.get('grayscale_ratio',0):.0%})"],
+            ["Avg brightness",   f"{prof.get('avg_brightness',0):.3f}  (std={prof.get('brightness_std',0):.3f})",
+             "Avg contrast",     f"{prof.get('avg_contrast',0):.3f}  (std={prof.get('contrast_std',0):.3f})"],
+            ["Avg file size",    f"{prof.get('avg_file_size_kb',0):.1f} KB",
+             "Corrupt images",   str(prof.get("n_corrupt", 0))],
+            ["Low contrast",     "Yes" if prof.get("has_low_contrast") else "No",
+             "Varied brightness","Yes" if prof.get("has_varied_brightness") else "No"],
+            ["Small images",     "Yes" if prof.get("has_small_images") else "No",
+             "Large images",     "Yes" if prof.get("has_large_images") else "No"],
+        ]
+        hw = available_w / 4
+        img_prof_extra = [("ALIGN", (1, 1), (1, -1), "RIGHT"), ("ALIGN", (3, 1), (3, -1), "RIGHT")]
+        story.append(_tbl(img_prof_rows, [hw*1.15, hw*0.85, hw*1.15, hw*0.85], extra=img_prof_extra))
+        story.append(Spacer(1, 0.5 * cm))
+        if chart_class_dist:
+            story.append(_fw_image(chart_class_dist, available_w))
+            story.append(Spacer(1, 0.4 * cm))
+        if chart_quality:
+            story.append(_fw_image(chart_quality, available_w))
+            story.append(Spacer(1, 0.4 * cm))
+        if chart_dims:
+            story.append(_fw_image(chart_dims, available_w))
+            story.append(Spacer(1, 0.3 * cm))
+    else:
+        num_c = prof.get("num_cols_count", 0)
+        cat_c = prof.get("cat_cols_count", 0)
+        prof_rows = [
+            [Paragraph("Metric", pipe_hdr_sty), Paragraph("Value", pipe_hdr_sty),
+             Paragraph("Metric", pipe_hdr_sty), Paragraph("Value", pipe_hdr_sty)],
+            ["Rows",                f"{n_rows_prof:,}",
+             "Feature columns",     f"{n_cols_prof}  (num={num_c}, cat={cat_c})"],
+            ["Missing ratio",       f"{prof.get('total_missing_ratio',0)*100:.1f}%",
+             "Cols >50% missing",   str(prof.get("high_missing_cols_count", 0))],
+            ["Duplicate rows",      str(prof.get("n_duplicates", 0)),
+             "Classes",             f"{prof.get('n_classes','?')}  "
+                                    f"(imbalance {prof.get('imbalance_ratio',1):.1f}x)"],
+            ["High-outlier cols",   str(prof.get("high_outlier_cols_count", 0)),
+             "High-skew cols",      str(prof.get("high_skew_cols_count", 0))],
+            ["High-kurtosis cols",  str(prof.get("high_kurtosis_cols_count", 0)),
+             "High-cardinality",    str(prof.get("high_cardinality_cols_count", 0))],
+            ["Binary numeric",      str(prof.get("binary_num_cols_count", 0)),
+             "Corr. pairs |r|>0.85",str(prof.get("n_high_corr_pairs", 0))],
+            ["Constant/near-const", str(prof.get("constant_cols_count", 0)),
+             "Sparse features",     "Yes" if prof.get("has_sparse_features") else "No"],
+            ["Multicollinearity",   "Yes" if prof.get("has_multicollinearity") else "No",
+             "Min class size",      str(prof.get("min_class_size", "?"))],
+        ]
+        hw = available_w / 4
+        prof_extra = [("ALIGN", (1, 1), (1, -1), "RIGHT"), ("ALIGN", (3, 1), (3, -1), "RIGHT")]
+        story.append(_tbl(prof_rows, [hw*1.15, hw*0.85, hw*1.15, hw*0.85], extra=prof_extra))
+        story.append(Spacer(1, 0.5 * cm))
+        if chart_comp:
+            story.append(_fw_image(chart_comp,    available_w))
+            story.append(Spacer(1, 0.4 * cm))
+        if chart_profile:
+            story.append(_fw_image(chart_profile, available_w))
+            story.append(Spacer(1, 0.3 * cm))
 
     # ─── Page 4: Pipeline Rankings ────────────────────────────────────────
     story.append(PageBreak())
