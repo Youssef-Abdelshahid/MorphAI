@@ -72,7 +72,8 @@ def generate_pipelines(
 
     prefer_simple    = "prefer_simple" in constraints
 
-    supervision_off = task_type in ("other",)
+    supervision_off = task_type in ("clustering", "anomaly", "dimensionality_reduction", "association_rules")
+    regression_like = task_type in ("regression", "ordinal", "ranking", "time_series")
 
     prefer_robust     = profile.has_outliers
     use_power         = profile.has_high_skew
@@ -116,7 +117,7 @@ def generate_pipelines(
     def _imb(pref: str) -> str:
         if supervision_off:
             return "none"
-        if task_type == "regression":
+        if regression_like:
             return "none"
         if pref == "smote":
             return "smote" if smote_ok else ("oversample" if need_oversample else "none")
@@ -141,7 +142,7 @@ def generate_pipelines(
             outlier_clip=use_clip, drop_high_missing_cols=drop_miss,
         ))
 
-    if profile.is_imbalanced and not supervision_off and task_type != "regression":
+    if profile.is_imbalanced and not supervision_off and not regression_like:
         if not prefer_simple or len(candidates) < 4:
             candidates.append(PipelineSpec(
                 num_imputer=primary_num_imp, cat_imputer=primary_cat_imp,
@@ -152,7 +153,7 @@ def generate_pipelines(
             ))
 
     if fe_budget_norm not in ("minimal",):
-        if profile.is_imbalanced and not supervision_off and task_type != "regression":
+        if profile.is_imbalanced and not supervision_off and not regression_like:
             candidates.append(PipelineSpec(
                 num_imputer=primary_num_imp, cat_imputer=primary_cat_imp,
                 scaler=primary_scaler, power_transform=use_power, encoder="onehot",
@@ -253,8 +254,8 @@ def generate_pipelines(
 
     if supervision_off:
         messages.append("Unsupervised task: imbalance handling disabled.")
-    elif task_type == "regression":
-        messages.append("Regression task: imbalance handling disabled.")
+    elif regression_like:
+        messages.append("This task family does not use imbalance handling.")
 
     if bad_cases:
         bad_specs: List[PipelineSpec] = []

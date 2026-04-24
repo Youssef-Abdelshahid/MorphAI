@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .config import Config
+from .config import Config, metric_label, valid_metrics_for_task
 from .preprocessing import PipelineSpec
 from .profiler import DataProfile
 
@@ -19,13 +19,22 @@ def generate_explanation(
     mem_influence: Optional[Dict[str, Any]] = None,
 ) -> str:
     spec: PipelineSpec = best["spec"]
-    score    = best["metrics"][metric]
+    selected_metric = best.get("selected_metric", metric)
+    raw_metrics = best.get("raw_metrics", best["metrics"])
+    score = raw_metrics.get(selected_metric, 0.0)
+    final_score = best.get("normalized_score", best.get("final_score", score))
     n_models = best.get("n_models", 1)
+    evaluation_mode = best.get("evaluation_mode", "")
 
     lines = [
-        f"The best pipeline scored {score:.4f} {metric.upper()} "
+        f"The best pipeline scored {score:.4f} {metric_label(selected_metric)} "
+        f"with a normalized score of {final_score:.4f} "
         f"(averaged across {n_models} model type{'s' if n_models != 1 else ''}).",
     ]
+    if evaluation_mode:
+        lines.append(f"Evaluation mode: {evaluation_mode}.")
+    if best.get("evaluation_summary"):
+        lines.append(best["evaluation_summary"])
 
     if task_context:
         task_parts = []
@@ -254,12 +263,12 @@ def generate_report(
 ) -> dict:
     tc      = config.task_context()
     explanation = generate_explanation(
-        profile, best, config.metric,
+        profile, best, best.get("selected_metric", config.metric),
         task_context=tc,
         meta_status=meta_status,
         mem_influence=mem_influence,
     )
-    sorted_results = sorted(results, key=lambda r: -r["metrics"][config.metric])
+    sorted_results = sorted(results, key=lambda r: -r.get("normalized_score", r.get("final_score", 0.0)))
 
     learning_summary: Dict[str, Any] = {}
     if meta_status:
@@ -285,9 +294,21 @@ def generate_report(
                 "rank":              rank + 1,
                 "pipeline_name":     r["spec"].name(),
                 "pipeline_config":   r["spec"].to_dict(),
+                "selected_metric":   r.get("selected_metric", config.metric),
                 "metrics":           r["metrics"],
+                "raw_metrics":       r.get("raw_metrics", r["metrics"]),
                 "metrics_std":       r.get("metrics_std", {}),
+                "normalized_metrics": r.get("normalized_metrics", {}),
+                "normalized_metrics_std": r.get("normalized_metrics_std", {}),
+                "normalized_score":  r.get("normalized_score", r.get("final_score")),
+                "final_score":       r.get("final_score"),
+                "final_score_std":   r.get("final_score_std"),
                 "per_model_metrics": r.get("per_model_metrics", {}),
+                "evaluation_mode":   r.get("evaluation_mode", ""),
+                "evaluation_summary": r.get("evaluation_summary", ""),
+                "evaluator_details": r.get("evaluator_details", {}),
+                "success":           r.get("success", True),
+                "reason":            r.get("reason", ""),
                 "n_splits":          r.get("n_splits"),
                 "elapsed_sec":       r["elapsed_sec"],
             }
@@ -296,9 +317,19 @@ def generate_report(
         "best_pipeline": {
             "name":              best["spec"].name(),
             "config":            best["spec"].to_dict(),
+            "selected_metric":   best.get("selected_metric", config.metric),
             "metrics":           best["metrics"],
+            "raw_metrics":       best.get("raw_metrics", best["metrics"]),
             "metrics_std":       best.get("metrics_std", {}),
+            "normalized_metrics": best.get("normalized_metrics", {}),
+            "normalized_metrics_std": best.get("normalized_metrics_std", {}),
+            "normalized_score":  best.get("normalized_score", best.get("final_score")),
+            "final_score":       best.get("final_score"),
+            "final_score_std":   best.get("final_score_std"),
             "per_model_metrics": best.get("per_model_metrics", {}),
+            "evaluation_mode":   best.get("evaluation_mode", ""),
+            "evaluation_summary": best.get("evaluation_summary", ""),
+            "evaluator_details": best.get("evaluator_details", {}),
             "n_splits":          best.get("n_splits"),
             "n_models":          best.get("n_models"),
             "elapsed_sec":       best["elapsed_sec"],
@@ -358,8 +389,9 @@ def print_final_summary(
     mem_influence: Optional[Dict[str, Any]] = None,
     mem_update_outcome: Optional[str] = None,
 ) -> None:
-    metric = config.metric
-    sorted_results = sorted(results, key=lambda r: -r["metrics"][metric])
+    metric = best.get("selected_metric", config.metric)
+    metric_names = valid_metrics_for_task(config.task_type)
+    sorted_results = sorted(results, key=lambda r: -r.get("normalized_score", r.get("final_score", 0.0)))
 
     n_splits = best.get("n_splits", "?")
     n_models = best.get("n_models", 1)
@@ -369,7 +401,7 @@ def print_final_summary(
     print(f"  PIPELINE EVALUATION RESULTS  "
           f"({n_splits}-fold CV x {n_models} models)")
     print("=" * _W)
-    col    = metric.upper()
+    col    = "Score"
     header = f"  {'#':<3} {'Pipeline':<42} {col:>8}  {'inter-model std':>15}"
     print(header)
     print("  " + "-" * (len(header) - 2))
@@ -378,28 +410,33 @@ def print_final_summary(
         name  = r["spec"].name()
         if len(name) > 40:
             name = name[:37] + "..."
-        score = r["metrics"][metric]
-        std   = r.get("metrics_std", {}).get(f"{metric}_std", 0.0)
+        score = r.get("normalized_score", r.get("final_score", 0.0))
+        std   = r.get("final_score_std", r.get("metrics_std", {}).get(f"{metric}_std", 0.0))
         marker = " *" if r is best else ""
         print(f"  {rank:<3} {name:<42} {score:>8.4f}  {std:>15.4f}{marker}")
 
     print("=" * _W)
     print()
-    m = best["metrics"]
+    m = best.get("raw_metrics", best["metrics"])
     s = best.get("metrics_std", {})
-    print(f"  Best {metric.upper()} : {m[metric]:.4f} "
-          f"(inter-model std {s.get(metric + '_std', 0.0):.4f}  "
+    print(f"  Best {metric_label(metric)} : {m[metric]:.4f} "
+          f"(normalized {best.get('normalized_score', best.get('final_score', 0.0)):.4f}  |  inter-model std {s.get(metric + '_std', 0.0):.4f}  "
           f"over {n_splits} folds x {n_models} models)")
-    print(f"  All metrics : "
-          f"acc={m['accuracy']:.4f}  "
-          f"f1={m['f1']:.4f}  "
-          f"prec={m['precision']:.4f}  "
-          f"rec={m['recall']:.4f}")
+    print(
+        "  All metrics : "
+        + "  ".join(
+            f"{metric_label(mk)}={m.get(mk, 0.0):.4f}" for mk in metric_names
+        )
+    )
 
     pmt = best.get("per_model_metrics", {})
     if pmt:
         print(f"  Per-model   : "
               + "  ".join(f"{mn}={mv.get(metric, 0):.4f}" for mn, mv in pmt.items()))
+    if best.get("evaluation_mode"):
+        print(f"  Eval mode   : {best['evaluation_mode']}")
+    if best.get("evaluation_summary"):
+        print(f"  Summary     : {best['evaluation_summary']}")
 
     tc = config.task_context()
     if any(tc.values()):

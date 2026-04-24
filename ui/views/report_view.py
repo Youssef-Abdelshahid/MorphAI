@@ -9,6 +9,14 @@ import os
 from datetime import datetime
 
 import customtkinter as ctk
+from src.image.config import (
+    metric_label as image_metric_label,
+    valid_metrics_for_task as image_valid_metrics_for_task,
+)
+from src.tabular.config import (
+    metric_label as tabular_metric_label,
+    valid_metrics_for_task as tabular_valid_metrics_for_task,
+)
 
 try:
     from PIL import Image as PILImage
@@ -74,9 +82,14 @@ class ReportViewMixin:
         prof    = report.get("profile_summary", {})
         best    = report.get("best_pipeline", {})
         results = report.get("results", [])
-        metric   = cfg.get("metric", "f1")
+        metric   = best.get("selected_metric", cfg.get("metric", "f1"))
+        task_type = report.get("task_context", {}).get("task_type", "")
         P        = 22   # padx for all sections
         is_image = report.get("modality") == "Image" or "n_images" in prof
+        metric_label_fn = image_metric_label if is_image else tabular_metric_label
+        valid_metrics_fn = image_valid_metrics_for_task if is_image else tabular_valid_metrics_for_task
+        metric_names = valid_metrics_fn(task_type) or list(best.get("metrics", {}).keys())
+        has_normalized_score = "final_score" in best
 
         ts_raw = report.get("timestamp", "")
         try:
@@ -230,7 +243,7 @@ class ReportViewMixin:
         kv_row(c, "Dataset",           cfg.get("data_path", "—"))
         if cfg.get("target"):
             kv_row(c, "Target column",     cfg.get("target", "—"))
-        kv_row(c, "Priority metric",   cfg.get("metric", "—").upper())
+        kv_row(c, "Priority metric",   metric_label_fn(metric))
         if report.get("modality"):
             kv_row(c, "Modality",      report.get("modality"))
         kv_row(c, "Pipelines tested",  str(report.get("pipelines_tested", "—")))
@@ -332,9 +345,11 @@ class ReportViewMixin:
         kv_row(c, "CV folds",  str(best.get("n_splits", "?")))
         kv_row(c, "Models",    str(best.get("n_models", "?")))
         kv_row(c, "Elapsed",   f"{best.get('elapsed_sec', 0):.2f} s")
+        if has_normalized_score:
+            kv_row(c, "Normalized score", f"{best.get('normalized_score', best.get('final_score', 0)):.4f}", highlight=True)
 
         # Metrics table
-        m   = best.get("metrics", {})
+        m   = best.get("raw_metrics", best.get("metrics", {}))
         std = best.get("metrics_std", {})
 
         mhdr = ctk.CTkFrame(scroll, fg_color=BG_BAR, corner_radius=0, height=28)
@@ -345,14 +360,14 @@ class ReportViewMixin:
                          font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
                          text_color=TXT_MUTED, width=w, anchor="w").pack(side="left", padx=10)
 
-        for mk in ["accuracy", "f1", "precision", "recall"]:
+        for mk in metric_names:
             is_p  = (mk == metric)
             row_c = "#1a2540" if is_p else BG_CARD
             mrow  = ctk.CTkFrame(scroll, fg_color=row_c, corner_radius=0, height=26)
             mrow.pack(fill="x", padx=P, pady=1)
             mrow.pack_propagate(False)
             ctk.CTkLabel(mrow,
-                         text=mk.upper() if is_p else mk.capitalize(),
+                         text=metric_label_fn(mk),
                          font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold" if is_p else "normal"),
                          text_color=ACCENT if is_p else TXT_MUTED,
                          width=170, anchor="w").pack(side="left", padx=10)
@@ -381,11 +396,11 @@ class ReportViewMixin:
                 ctk.CTkLabel(pmhdr, text=mn.capitalize(),
                              font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
                              text_color=TXT_MUTED, width=90, anchor="w").pack(side="left")
-            for mk in ["accuracy", "f1", "precision", "recall"]:
+            for mk in metric_names:
                 pmrow = ctk.CTkFrame(scroll, fg_color=BG_CARD, corner_radius=0, height=24)
                 pmrow.pack(fill="x", padx=P, pady=1)
                 pmrow.pack_propagate(False)
-                ctk.CTkLabel(pmrow, text=mk.capitalize(),
+                ctk.CTkLabel(pmrow, text=metric_label_fn(mk),
                              font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT_MUTED,
                              width=130, anchor="w").pack(side="left", padx=10)
                 for mn in model_names:
@@ -401,7 +416,8 @@ class ReportViewMixin:
         rhdr = ctk.CTkFrame(scroll, fg_color=BG_BAR, corner_radius=0, height=28)
         rhdr.pack(fill="x", padx=P, pady=(0, 0))
         rhdr.pack_propagate(False)
-        for label, w in [("#", 28), ("Pipeline", 0), (metric.upper(), 80), ("Time", 72)]:
+        score_col_label = "Score" if has_normalized_score else metric_label_fn(metric)
+        for label, w in [("#", 28), ("Pipeline", 0), (score_col_label, 80), ("Time", 72)]:
             ctk.CTkLabel(rhdr, text=label,
                          font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
                          text_color=TXT_MUTED,
@@ -425,7 +441,7 @@ class ReportViewMixin:
                          font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold" if is_best else "normal"),
                          text_color=ACCENT if is_best else TXT,
                          anchor="w").pack(side="left", fill="x", expand=True, padx=4)
-            score = r.get("metrics", {}).get(metric, 0)
+            score = r.get("normalized_score", r.get("final_score", r.get("metrics", {}).get(metric, 0)))
             ctk.CTkLabel(rrow, text=f"{score:.4f}",
                          font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold" if is_best else "normal"),
                          text_color=ACCENT if is_best else TXT,
@@ -434,7 +450,12 @@ class ReportViewMixin:
                          font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT_MUTED,
                          width=72, anchor="w").pack(side="right")
 
-        _add_chart("_c_rank", f"Candidate pipeline rankings by {metric.upper()}")
+        _add_chart(
+            "_c_rank",
+            "Candidate pipeline rankings by normalized score"
+            if has_normalized_score
+            else f"Candidate pipeline rankings by {metric_label_fn(metric)}"
+        )
 
         # Section 5: Decision Rationale
         sec_hdr("5   Decision Rationale")

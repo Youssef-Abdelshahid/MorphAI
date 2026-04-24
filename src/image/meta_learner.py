@@ -5,24 +5,38 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-MEMORY_DIR        = Path("memory") / "image"
+MEMORY_DIR = Path("memory") / "image"
 META_LEARNER_FILE = MEMORY_DIR / "meta_learner.pkl"
+_SCORE_SYSTEM = "normalized_v2"
 
-MIN_RUNS_TO_USE      = 5
+MIN_RUNS_TO_USE = 5
 MIN_RUNS_FULL_WEIGHT = 20
-MAX_META_WEIGHT      = 0.25
+MAX_META_WEIGHT = 0.25
 
-_TASK_TYPES    = ["classification", "binary", "multiclass", "other"]
-_TASK_TYPE_MAP = {t: i for i, t in enumerate(_TASK_TYPES)}
+_TASK_TYPES = [
+    "classification",
+    "multilabel",
+    "detection",
+    "semantic_segmentation",
+    "instance_segmentation",
+    "keypoint",
+    "retrieval",
+    "anomaly",
+    "ocr",
+    "generation",
+    "depth",
+    "other",
+]
+_TASK_TYPE_MAP = {task: idx for idx, task in enumerate(_TASK_TYPES)}
 
-_COLOR_MODE_MAP    = {"rgb": 0, "grayscale": 1}
-_NORM_MAP          = {"none": 0, "standard": 1, "minmax": 2}
-_ROTATION_MAP      = {"none": 0, "light": 1, "moderate": 2}
-_IMBALANCE_MAP     = {"none": 0, "oversample": 1}
+_COLOR_MODE_MAP = {"rgb": 0, "grayscale": 1}
+_NORM_MAP = {"none": 0, "standard": 1, "minmax": 2}
+_ROTATION_MAP = {"none": 0, "light": 1, "moderate": 2}
+_IMBALANCE_MAP = {"none": 0, "oversample": 1}
 
 
 def _encode_task_type(task_type: str) -> float:
-    idx = _TASK_TYPE_MAP.get((task_type or "classification").lower().strip(), 0)
+    idx = _TASK_TYPE_MAP.get((task_type or "other").lower().strip(), len(_TASK_TYPES) - 1)
     return idx / max(len(_TASK_TYPES) - 1, 1)
 
 
@@ -34,7 +48,7 @@ def _encode_domain(domain: str) -> float:
 
 def _profile_features(profile_summary: dict) -> List[float]:
     n_images = max(int(profile_summary.get("n_images", 1)), 1)
-    n_classes = max(int(profile_summary.get("n_classes", 2)), 1)
+    n_classes = max(int(profile_summary.get("n_classes", 1)), 1)
     return [
         min(math.log10(n_images) / 6.0, 1.0),
         min(n_classes / 100.0, 1.0),
@@ -68,20 +82,14 @@ def _pipeline_features(pipeline_dict: dict) -> List[float]:
     ]
 
 
-def _build_feature_vector(
-    task_context: dict,
-    profile_summary: dict,
-    pipeline_dict: dict,
-) -> List[float]:
-    task_feats = [
-        _encode_task_type(task_context.get("task_type", "classification")),
+def _build_feature_vector(task_context: dict, profile_summary: dict, pipeline_dict: dict) -> List[float]:
+    return [
+        _encode_task_type(task_context.get("task_type", "other")),
         _encode_domain(task_context.get("domain", "")),
-    ]
-    return task_feats + _profile_features(profile_summary) + _pipeline_features(pipeline_dict)
+    ] + _profile_features(profile_summary) + _pipeline_features(pipeline_dict)
 
 
 class ImageMetaLearner:
-
     def __init__(self) -> None:
         self._model: Any = None
         self._n_train: int = 0
@@ -95,7 +103,8 @@ class ImageMetaLearner:
                 n_train = int(data.get("n_train", 0))
                 stored_feature_size = int(data.get("feature_size", 0))
                 current_feature_size = len(_build_feature_vector({}, {}, {}))
-                if stored_feature_size != current_feature_size:
+                score_system = data.get("score_system")
+                if stored_feature_size != current_feature_size or score_system != _SCORE_SYSTEM:
                     self._model = None
                     self._n_train = 0
                 else:
@@ -107,13 +116,16 @@ class ImageMetaLearner:
 
     def save(self) -> None:
         MEMORY_DIR.mkdir(parents=True, exist_ok=True)
-        current_feature_size = len(_build_feature_vector({}, {}, {}))
         with open(META_LEARNER_FILE, "wb") as fh:
-            pickle.dump({
-                "model":        self._model,
-                "n_train":      self._n_train,
-                "feature_size": current_feature_size,
-            }, fh)
+            pickle.dump(
+                {
+                    "model": self._model,
+                    "n_train": self._n_train,
+                    "feature_size": len(_build_feature_vector({}, {}, {})),
+                    "score_system": _SCORE_SYSTEM,
+                },
+                fh,
+            )
 
     @property
     def is_mature(self) -> bool:
@@ -123,11 +135,7 @@ class ImageMetaLearner:
     def weight(self) -> float:
         if self._n_train < MIN_RUNS_TO_USE:
             return 0.0
-        ratio = min(
-            (self._n_train - MIN_RUNS_TO_USE)
-            / max(MIN_RUNS_FULL_WEIGHT - MIN_RUNS_TO_USE, 1),
-            1.0,
-        )
+        ratio = min((self._n_train - MIN_RUNS_TO_USE) / max(MIN_RUNS_FULL_WEIGHT - MIN_RUNS_TO_USE, 1), 1.0)
         return MAX_META_WEIGHT * ratio
 
     @property
@@ -139,38 +147,27 @@ class ImageMetaLearner:
             from sklearn.ensemble import RandomForestRegressor
         except ImportError:
             return 0
-
         X: List[List[float]] = []
-        y: List[float]       = []
-
+        y: List[float] = []
         for run in runs:
-            task_context    = run.get("task_context", {})
+            task_context = run.get("task_context", {})
             profile_summary = run.get("profile_summary", {})
-            metric          = run.get("metric_priority", "f1")
-            all_pipelines   = run.get("all_pipelines_tested", [])
-
+            all_pipelines = run.get("all_pipelines_tested", [])
             if all_pipelines:
                 for entry in all_pipelines:
-                    pipe_dict = entry.get("pipeline_config") or entry.get("pipeline")
-                    score     = entry.get("metrics", {}).get(metric)
-                    if pipe_dict and score is not None:
-                        fv = _build_feature_vector(task_context, profile_summary, pipe_dict)
-                        X.append(fv)
+                    pipeline_dict = entry.get("pipeline_config") or entry.get("pipeline")
+                    score = entry.get("normalized_score", entry.get("final_score"))
+                    if pipeline_dict and score is not None:
+                        X.append(_build_feature_vector(task_context, profile_summary, pipeline_dict))
                         y.append(float(score))
             else:
-                bp = run.get("best_pipeline")
-                bs = run.get("best_score")
-                if bp and bs is not None:
-                    fv = _build_feature_vector(task_context, profile_summary, bp)
-                    X.append(fv)
-                    y.append(float(bs))
-
+                best_pipeline = run.get("best_pipeline")
+                best_score = run.get("best_score")
+                if best_pipeline and best_score is not None:
+                    X.append(_build_feature_vector(task_context, profile_summary, best_pipeline))
+                    y.append(float(best_score))
         if len(X) < 3:
             return 0
-
-        X_arr = np.array(X, dtype=float)
-        y_arr = np.array(y, dtype=float)
-
         model = RandomForestRegressor(
             n_estimators=50,
             max_depth=6,
@@ -178,22 +175,17 @@ class ImageMetaLearner:
             random_state=42,
             n_jobs=1,
         )
-        model.fit(X_arr, y_arr)
+        model.fit(np.asarray(X, dtype=float), np.asarray(y, dtype=float))
         self._model = model
         self._n_train = len(X)
         return len(X)
 
-    def predict_score(
-        self,
-        task_context: dict,
-        profile_summary: dict,
-        pipeline_dict: dict,
-    ) -> Optional[float]:
+    def predict_score(self, task_context: dict, profile_summary: dict, pipeline_dict: dict) -> Optional[float]:
         if not self.is_mature or self._model is None:
             return None
         try:
             fv = _build_feature_vector(task_context, profile_summary, pipeline_dict)
-            pred = float(self._model.predict(np.array([fv]))[0])
+            pred = float(self._model.predict(np.asarray([fv], dtype=float))[0])
             return max(0.0, min(1.0, pred))
         except Exception:
             return None
@@ -207,43 +199,34 @@ class ImageMetaLearner:
     ) -> Tuple[list, List[str]]:
         if not self.is_mature or self._model is None:
             return candidates, []
-
-        w = self.weight
-        if w <= 0.0 or len(candidates) <= 1:
+        weight = self.weight
+        if weight <= 0.0 or len(candidates) <= 1:
             return candidates, []
-
         n = len(candidates)
-
         if existing_scores and len(existing_scores) == n:
             mn, mx = min(existing_scores), max(existing_scores)
             span = (mx - mn) if mx > mn else 1.0
-            h_scores = [(s - mn) / span for s in existing_scores]
+            heuristic_scores = [(score - mn) / span for score in existing_scores]
         else:
-            h_scores = [(n - i) / n for i in range(n)]
-
+            heuristic_scores = [(n - idx) / n for idx in range(n)]
         combined: List[Tuple[float, int, Any]] = []
-        for i, spec in enumerate(candidates):
+        for idx, spec in enumerate(candidates):
             meta_score = self.predict_score(task_context, profile_summary, spec.to_dict())
             if meta_score is None:
-                meta_score = h_scores[i]
-            combined_score = (1.0 - w) * h_scores[i] + w * meta_score
-            combined.append((combined_score, i, spec))
-
-        combined.sort(key=lambda x: -x[0])
+                meta_score = heuristic_scores[idx]
+            combined_score = (1.0 - weight) * heuristic_scores[idx] + weight * meta_score
+            combined.append((combined_score, idx, spec))
+        combined.sort(key=lambda item: -item[0])
         reordered = [spec for _, _, spec in combined]
-
-        msgs = [
-            f"Meta-learner (advisory, weight={w:.2f}, "
-            f"samples={self._n_train}): reordered {n} candidate(s)."
-        ]
+        msgs = [f"Meta-learner (advisory, weight={weight:.2f}, samples={self._n_train}): reordered {n} candidate(s)."]
         return reordered, msgs
 
     def status_summary(self) -> dict:
         return {
-            "is_mature":   self.is_mature,
-            "n_train":     self._n_train,
-            "weight":      round(self.weight, 3),
-            "min_to_use":  MIN_RUNS_TO_USE,
+            "is_mature": self.is_mature,
+            "n_train": self._n_train,
+            "weight": round(self.weight, 3),
+            "min_to_use": MIN_RUNS_TO_USE,
             "min_full_wt": MIN_RUNS_FULL_WEIGHT,
-            "max_weight":  MAX_META_WEIGHT,
+            "max_weight": MAX_META_WEIGHT,
         }

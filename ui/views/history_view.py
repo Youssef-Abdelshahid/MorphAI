@@ -1,9 +1,3 @@
-"""
-ui/views/history_view.py — History view mixin.
-
-Provides _build_history_view, _refresh_history, _show_history_detail,
-and _load_history_report for the App class.
-"""
 from __future__ import annotations
 
 from datetime import datetime
@@ -12,6 +6,14 @@ from typing import List
 
 import customtkinter as ctk
 
+from src.image.config import (
+    metric_label as image_metric_label,
+    valid_metrics_for_task as image_valid_metrics_for_task,
+)
+from src.tabular.config import (
+    metric_label as tabular_metric_label,
+    valid_metrics_for_task as tabular_valid_metrics_for_task,
+)
 from ui.constants import (
     _ROOT,
     BG_WIN, BG_BAR, BG_SIDEBAR, BG_INPUT,
@@ -23,13 +25,10 @@ from ui.helpers import _card, _load_json, _open_file
 
 
 class HistoryViewMixin:
-    """Mixin that adds the History view to App."""
-
     def _build_history_view(self) -> None:
         view = ctk.CTkFrame(self._content, fg_color=BG_WIN, corner_radius=0)
         self._views["history"] = view
 
-        # Top bar
         bar = ctk.CTkFrame(view, height=44, fg_color=BG_BAR, corner_radius=0)
         bar.pack(fill="x")
         bar.pack_propagate(False)
@@ -43,11 +42,9 @@ class HistoryViewMixin:
             font=ctk.CTkFont(family=FONT_FAMILY, size=13), command=self._refresh_history,
         ).pack(side="right", padx=10, pady=8)
 
-        # Body: left list + separator + right detail
         body = ctk.CTkFrame(view, fg_color="transparent")
         body.pack(fill="both", expand=True)
 
-        # Left list
         list_panel = ctk.CTkFrame(body, width=290, fg_color=BG_SIDEBAR, corner_radius=0)
         list_panel.pack(side="left", fill="y")
         list_panel.pack_propagate(False)
@@ -59,12 +56,10 @@ class HistoryViewMixin:
         )
         self._hist_list.pack(fill="both", expand=True)
 
-        # Separator
         ctk.CTkFrame(body, width=1, fg_color=BORDER, corner_radius=0).pack(
             side="left", fill="y"
         )
 
-        # Right detail
         self._hist_detail = ctk.CTkScrollableFrame(
             body, fg_color=BG_WIN, scrollbar_button_color=BORDER,
         )
@@ -101,17 +96,20 @@ class HistoryViewMixin:
             report = _load_json(jf)
             if report is None:
                 continue
-            cfg     = report.get("config", {})
-            ts_raw  = report.get("timestamp", "")
+            cfg = report.get("config", {})
+            is_image = report.get("modality") == "Image"
+            metric_label_fn = image_metric_label if is_image else tabular_metric_label
+            ts_raw = report.get("timestamp", "")
             try:
                 ts_fmt = datetime.fromisoformat(ts_raw).strftime("%Y-%m-%d  %H:%M")
             except Exception:
                 ts_fmt = jf.stem[-15:]
             ds_name = Path(cfg.get("data_path", "?")).name
-            metric  = cfg.get("metric", "?")
-            sc      = report.get("best_pipeline", {}).get("metrics", {}).get(metric)
-            score   = f"{sc:.4f}" if sc is not None else "?"
-            label   = f"{ts_fmt}  |  {ds_name}\n{metric.upper()} {score}"
+            best_pipe = report.get("best_pipeline", {})
+            metric = best_pipe.get("selected_metric", cfg.get("metric", "?"))
+            sc = best_pipe.get("raw_metrics", best_pipe.get("metrics", {})).get(metric)
+            score = f"{sc:.4f}" if sc is not None else "?"
+            label = f"{ts_fmt}  |  {ds_name}\n{metric_label_fn(metric)} {score}"
 
             btn = ctk.CTkButton(
                 self._hist_list, text=label,
@@ -126,11 +124,16 @@ class HistoryViewMixin:
         for w in self._hist_detail.winfo_children():
             w.destroy()
 
-        cfg    = report.get("config", {})
-        metric = cfg.get("metric", "f1")
-        best   = report.get("best_pipeline", {})
-        m      = best.get("metrics", {})
-        P      = 20
+        best = report.get("best_pipeline", {})
+        cfg = report.get("config", {})
+        is_image = report.get("modality") == "Image"
+        metric_label_fn = image_metric_label if is_image else tabular_metric_label
+        valid_metrics_fn = image_valid_metrics_for_task if is_image else tabular_valid_metrics_for_task
+        metric = best.get("selected_metric", cfg.get("metric", "f1"))
+        m = best.get("raw_metrics", best.get("metrics", {}))
+        task_type = report.get("task_context", {}).get("task_type", "")
+        metric_names = valid_metrics_fn(task_type) or list(m.keys())
+        P = 20
 
         ts_raw = report.get("timestamp", "")
         try:
@@ -143,7 +146,6 @@ class HistoryViewMixin:
             font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"), text_color=TXT,
         ).pack(anchor="w", padx=P, pady=(16, 8))
 
-        # Summary card
         c = _card(self._hist_detail)
         c.pack(fill="x", padx=P, pady=(0, 10))
 
@@ -157,25 +159,24 @@ class HistoryViewMixin:
                          font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT,
                          anchor="w", wraplength=420).pack(side="left", fill="x", expand=True)
 
-        kv("Timestamp",        ts_fmt)
-        kv("Dataset",          Path(cfg.get("data_path", "—")).name)
+        kv("Timestamp", ts_fmt)
+        kv("Dataset", Path(cfg.get("data_path", "—")).name)
         if report.get("modality") == "Image":
-            kv("Modality",         "Image")
+            kv("Modality", "Image")
         else:
-            kv("Target",           cfg.get("target", "—"))
-        kv("Priority metric",  metric.upper())
-        kv("Best pipeline",    best.get("name", "—"))
-        kv("Score",            f"{m.get(metric,0):.4f}  "
-                               f"(acc={m.get('accuracy',0):.4f}  "
-                               f"f1={m.get('f1',0):.4f}  "
-                               f"prec={m.get('precision',0):.4f}  "
-                               f"rec={m.get('recall',0):.4f})")
+            kv("Target", cfg.get("target", "—"))
+        kv("Priority metric", metric_label_fn(metric))
+        kv("Best pipeline", best.get("name", "—"))
+        score_text = f"{m.get(metric, 0):.4f}"
+        if "final_score" in best:
+            score_text += f"  |  normalized={best.get('normalized_score', best.get('final_score', 0)):.4f}"
+        score_text += f"  ({'; '.join(f'{metric_label_fn(mk)}={m.get(mk, 0):.4f}' for mk in metric_names)})"
+        kv("Score", score_text)
         kv("Pipelines tested", str(report.get("pipelines_tested", "?")))
-        kv("Report file",      report_path.name)
+        kv("Report file", report_path.name)
 
         ctk.CTkFrame(c, fg_color="transparent", height=6).pack()
 
-        # Action buttons
         btn_row = ctk.CTkFrame(self._hist_detail, fg_color="transparent")
         btn_row.pack(fill="x", padx=P, pady=(0, 12))
 
@@ -194,7 +195,7 @@ class HistoryViewMixin:
         ).pack(side="left", padx=(0, 8))
 
         proc_dir = _ROOT / "processed"
-        ds_stem  = Path(cfg.get("data_path", "")).stem
+        ds_stem = Path(cfg.get("data_path", "")).stem
         is_image_run = report.get("modality") == "Image"
         artifact_files: List[Path] = []
         if proc_dir.exists() and ds_stem:
@@ -220,7 +221,6 @@ class HistoryViewMixin:
                 command=lambda p=artifact_files[0]: _open_file(p),
             ).pack(side="left")
 
-        # Profile mini-summary
         prof = report.get("profile_summary", {})
         if prof:
             ctk.CTkLabel(
@@ -233,32 +233,26 @@ class HistoryViewMixin:
             if report.get("modality") == "Image":
                 ch_map = {1: "Grayscale", 3: "RGB", 4: "RGBA"}
                 for k, v in [
-                    ("Images",      f"{prof.get('n_images', 0):,}"),
-                    ("Classes",     f"{prof.get('n_classes','?')}  "
-                                    f"(imbalance {prof.get('imbalance_ratio',1):.1f}x)"),
-                    ("Avg size",    f"{prof.get('avg_height', 0):.0f} x "
-                                    f"{prof.get('avg_width', 0):.0f} px"),
-                    ("Color mode",  ch_map.get(prof.get("dominant_color_channels", 3), "RGB")),
+                    ("Images", f"{prof.get('n_images', 0):,}"),
+                    ("Classes", f"{prof.get('n_classes','?')}  (imbalance {prof.get('imbalance_ratio',1):.1f}x)"),
+                    ("Avg size", f"{prof.get('avg_height', 0):.0f} x {prof.get('avg_width', 0):.0f} px"),
+                    ("Color mode", ch_map.get(prof.get('dominant_color_channels', 3), "RGB")),
                     ("Avg brightness", f"{prof.get('avg_brightness', 0):.3f}"),
-                    ("Corrupt",     str(prof.get("n_corrupt", 0))),
+                    ("Corrupt", str(prof.get('n_corrupt', 0))),
                 ]:
                     kv(k, v)
             else:
                 for k, v in [
-                    ("Rows",         f"{prof.get('n_rows', 0):,}"),
-                    ("Columns",      f"{prof.get('n_cols','?')}  "
-                                     f"(num={prof.get('num_cols_count','?')}, "
-                                     f"cat={prof.get('cat_cols_count','?')})"),
-                    ("Missing",      f"{prof.get('total_missing_ratio',0)*100:.1f}%"),
-                    ("Classes",      f"{prof.get('n_classes','?')}  "
-                                     f"(imbalance {prof.get('imbalance_ratio',1):.1f}x)"),
+                    ("Rows", f"{prof.get('n_rows', 0):,}"),
+                    ("Columns", f"{prof.get('n_cols','?')}  (num={prof.get('num_cols_count','?')}, cat={prof.get('cat_cols_count','?')})"),
+                    ("Missing", f"{prof.get('total_missing_ratio',0)*100:.1f}%"),
+                    ("Classes", f"{prof.get('n_classes','?')}  (imbalance {prof.get('imbalance_ratio',1):.1f}x)"),
                     ("Outlier cols", str(prof.get("high_outlier_cols_count", 0))),
-                    ("Skew cols",    str(prof.get("high_skew_cols_count", 0))),
+                    ("Skew cols", str(prof.get("high_skew_cols_count", 0))),
                 ]:
                     kv(k, v)
 
     def _load_history_report(self, report: dict) -> None:
-        """Load a history report into Report view and switch to it."""
         self._report_data = report
         self._render_report(report)
         self._switch_view("report")

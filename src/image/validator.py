@@ -1,10 +1,18 @@
+import json
 import zipfile
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Tuple
+
+from .config import (
+    SUPPORTED_TASK_TYPES,
+    VALID_TASK_TYPES,
+    default_metric_for_task,
+    normalize_task_type,
+    valid_metrics_for_task,
+)
 
 _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"}
-
-_SUPPORTED_TASKS = {"classification", "multiclass", "binary"}
+_ANNOTATION_EXTENSIONS = {".json", ".txt", ".xml", ".csv", ".npy", ".npz"}
 
 
 def _scan_image_folder(root: Path) -> Tuple[List[str], dict, int]:
@@ -14,13 +22,77 @@ def _scan_image_folder(root: Path) -> Tuple[List[str], dict, int]:
     for sub in sorted(root.iterdir()):
         if not sub.is_dir():
             continue
-        imgs = [f for f in sub.iterdir()
-                if f.is_file() and f.suffix.lower() in _IMAGE_EXTENSIONS]
+        imgs = [f for f in sub.iterdir() if f.is_file() and f.suffix.lower() in _IMAGE_EXTENSIONS]
         if imgs:
             classes.append(sub.name)
             class_counts[sub.name] = len(imgs)
             total += len(imgs)
     return classes, class_counts, total
+
+
+def _annotation_summary(root: Path) -> Dict[str, int]:
+    summary = {
+        "json": 0,
+        "txt": 0,
+        "xml": 0,
+        "csv": 0,
+        "npy": 0,
+        "npz": 0,
+        "mask_like": 0,
+        "depth_like": 0,
+    }
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        suffix = path.suffix.lower()
+        if suffix in _ANNOTATION_EXTENSIONS:
+            summary[suffix.lstrip(".")] += 1
+        name = path.stem.lower()
+        if any(token in name for token in ["mask", "label", "seg", "instance"]):
+            summary["mask_like"] += 1
+        if any(token in name for token in ["depth", "disp", "disparity"]):
+            summary["depth_like"] += 1
+    return summary
+
+
+def _task_validation_hints(task_type: str, annotations: Dict[str, int], classes: List[str]) -> List[str]:
+    errors: List[str] = []
+    if task_type == "classification":
+        if len(classes) < 2:
+            errors.append("Single-label classification needs at least 2 class folders with images.")
+    elif task_type == "multilabel":
+        if len(classes) < 1:
+            errors.append("Multi-label classification needs image folders or another image source.")
+    elif task_type == "detection":
+        if annotations["json"] + annotations["xml"] + annotations["txt"] <= 0:
+            errors.append("Object detection requires bounding box annotations (JSON, XML, or TXT).")
+    elif task_type == "semantic_segmentation":
+        if annotations["mask_like"] + annotations["json"] + annotations["png"] if False else 0:
+            pass
+        if annotations["mask_like"] + annotations["json"] + annotations["npy"] + annotations["npz"] <= 0:
+            errors.append("Semantic segmentation requires segmentation masks or equivalent annotation files.")
+    elif task_type == "instance_segmentation":
+        if annotations["mask_like"] + annotations["json"] + annotations["xml"] <= 0:
+            errors.append("Instance segmentation requires instance masks or instance-level annotation files.")
+    elif task_type == "keypoint":
+        if annotations["json"] + annotations["txt"] + annotations["csv"] <= 0:
+            errors.append("Keypoint / pose estimation requires keypoint annotations.")
+    elif task_type == "retrieval":
+        if len(classes) < 2 and annotations["json"] + annotations["csv"] <= 0:
+            errors.append("Image retrieval needs labels, query-gallery structure, or retrieval pairs.")
+    elif task_type == "anomaly":
+        if len(classes) < 1:
+            errors.append("Anomaly / defect detection needs at least one image folder.")
+    elif task_type == "ocr":
+        if annotations["txt"] + annotations["json"] + annotations["csv"] <= 0:
+            errors.append("OCR requires text transcriptions or OCR label files.")
+    elif task_type == "generation":
+        if len(classes) < 1:
+            errors.append("Image generation / synthesis needs at least one folder of images.")
+    elif task_type == "depth":
+        if annotations["depth_like"] + annotations["npy"] + annotations["npz"] <= 0:
+            errors.append("Depth estimation requires depth maps or depth annotation files.")
+    return errors
 
 
 def validate_image_zip(zip_path: Path) -> list:
@@ -34,7 +106,7 @@ def validate_image_zip(zip_path: Path) -> list:
         errors.append(
             f"Image modality requires a .zip file. "
             f"Got: '{zip_path.suffix or zip_path.name}'. "
-            "Provide the dataset as a single .zip archive containing class sub-folders."
+            "Provide the dataset as a single .zip archive."
         )
         return errors
 
@@ -65,75 +137,66 @@ def validate_image_zip(zip_path: Path) -> list:
     image_names = [
         n for n in names
         if Path(n).suffix.lower() in _IMAGE_EXTENSIONS
-        and not any(
-            part.startswith(".") or part == "__MACOSX"
-            for part in Path(n).parts
-        )
+        and not any(part.startswith(".") or part == "__MACOSX" for part in Path(n).parts)
     ]
-
     if not image_names:
         errors.append(
             "Zip archive contains no valid image files. "
             f"Supported formats: {', '.join(sorted(_IMAGE_EXTENSIONS))}."
         )
-        return errors
-
-    classes_found = set()
-    for n in image_names:
-        parts = [
-            p for p in Path(n).parts
-            if not p.startswith(".") and p != "__MACOSX"
-        ]
-        if len(parts) >= 2:
-            classes_found.add(parts[-2])
-
-    if len(classes_found) < 2:
-        errors.append(
-            f"Expected at least 2 class sub-folders within the zip, "
-            f"found {len(classes_found)}. "
-            "Structure should be: <class_name>/<image_files> "
-            "(or <root_folder>/<class_name>/<image_files>)."
-        )
-
     return errors
 
 
 def validate_image_run(config, root: Path) -> list:
     errors = []
+    task_type = normalize_task_type(config.task_type)
+    metric = (config.metric or "").strip().lower()
 
     if not root.exists():
         errors.append(f"Path does not exist: {root}")
         return errors
-
     if not root.is_dir():
         errors.append(f"Path is not a directory: {root}")
         return errors
 
+    if not task_type:
+        errors.append("An image task type is required.")
+    elif task_type not in VALID_TASK_TYPES:
+        errors.append(
+            f"Task type '{config.task_type}' is not valid for image data. "
+            f"Supported task types: {sorted(SUPPORTED_TASK_TYPES)}"
+        )
+    elif task_type not in SUPPORTED_TASK_TYPES:
+        errors.append(
+            f"Task type '{task_type}' is not yet supported for image data. "
+            f"Supported task types: {sorted(SUPPORTED_TASK_TYPES)}"
+        )
+
+    valid_metrics = valid_metrics_for_task(task_type)
+    if valid_metrics:
+        if not metric:
+            errors.append(
+                f"A priority metric is required for an image task of type '{task_type}'. "
+                f"Suggested default: {default_metric_for_task(task_type)}"
+            )
+        elif metric not in valid_metrics:
+            errors.append(
+                f"Metric '{config.metric}' is not valid for '{task_type}'. "
+                f"Valid metrics: {valid_metrics}"
+            )
+
     classes, class_counts, total = _scan_image_folder(root)
-
-    if len(classes) < 2:
-        errors.append(
-            f"Need at least 2 class sub-folders with images, found {len(classes)}. "
-            "Expected structure: root/<class_name>/<images>."
-        )
-        return errors
-
     if total < 10:
-        errors.append(
-            f"Dataset has only {total} images. At least 10 are required."
-        )
+        errors.append(f"Dataset has only {total} images. At least 10 are required.")
 
-    small_classes = [c for c, n in class_counts.items() if n < 2]
-    if small_classes:
-        errors.append(
-            f"Classes with fewer than 2 images: {small_classes}. "
-            "Each class needs at least 2 samples for evaluation."
-        )
+    if task_type in {"classification", "multilabel", "retrieval", "anomaly"}:
+        small_classes = [c for c, n in class_counts.items() if n < 2]
+        if small_classes and task_type in {"classification", "retrieval"}:
+            errors.append(
+                f"Classes with fewer than 2 images: {small_classes}. "
+                "Each class needs at least 2 samples for evaluation."
+            )
 
-    if config.task_type not in _SUPPORTED_TASKS:
-        errors.append(
-            f"Task type '{config.task_type}' is not yet supported for image data. "
-            f"Supported: {sorted(_SUPPORTED_TASKS)}."
-        )
-
+    annotations = _annotation_summary(root)
+    errors.extend(_task_validation_hints(task_type, annotations, classes))
     return errors

@@ -82,7 +82,7 @@ class AgentWorker:
         csv_path: Path,
         target: str,
         metric: str,
-        task_type:         str = "classification",
+        task_type:         str,
         domain:            str = "",
         constraints:       str = "",
         notes:             str = "",
@@ -135,7 +135,7 @@ class AgentWorker:
         self._log("INFO", f"Dataset : {csv_path.name}")
         self._log("INFO", f"Target  : {target}")
         self._log("INFO", f"Metric  : {metric}")
-        if tc.get("task_type") and tc["task_type"] != "classification":
+        if tc.get("task_type"):
             self._log("INFO", f"Task    : {tc['task_type']}  ({tc.get('supervision', '')})")
         if tc.get("domain"):
             self._log("INFO", f"Domain  : {tc['domain']}")
@@ -245,38 +245,48 @@ class AgentWorker:
 
         self._step("[6/9] Evaluating pipelines ...")
         results = []
+        successful_results = []
         for idx, spec in enumerate(pipelines, 1):
             label = spec.name()
             short = label if len(label) <= 52 else label[:49] + "..."
             self._log("INFO", f"  [{idx:2d}/{len(pipelines)}]  {short}")
-            result = evaluate_pipeline(spec, df.copy(), profile)
+            result = evaluate_pipeline(spec, df.copy(), profile, config.task_type, config.metric)
             if result:
                 results.append(result)
-                m_val = result["metrics"][metric]
-                n_m   = result.get("n_models", 1)
-                self._log("METRIC",
-                          f"           {metric}={m_val:.4f}  "
-                          f"[{result['n_splits']}folds x {n_m}models "
-                          f"x {result['elapsed_sec']:.2f}s]")
-                pmt = result.get("per_model_metrics", {})
-                if pmt:
-                    row = "  ".join(f"{mn}={mv.get(metric,0):.4f}"
-                                   for mn, mv in pmt.items())
-                    self._log("MUTED", f"           {row}")
-            else:
-                self._log("WARN", "           [FAILED - skipped]")
+                if result.get("success", True):
+                    successful_results.append(result)
+                    selected_metric = result.get("selected_metric", metric)
+                    m_val = result.get("raw_metrics", result["metrics"]).get(selected_metric, 0.0)
+                    s_val = result.get("normalized_score", result.get("final_score", 0.0))
+                    n_m   = result.get("n_models", 1)
+                    self._log(
+                        "METRIC",
+                        f"           {selected_metric}={m_val:.4f}  "
+                        f"| normalized={s_val:.4f}  "
+                        f"[{result['n_splits']}folds x {n_m}models "
+                        f"x {result['elapsed_sec']:.2f}s]"
+                    )
+                    pmt = result.get("per_model_metrics", {})
+                    if pmt:
+                        row = "  ".join(f"{mn}={mv.get(selected_metric, 0):.4f}" for mn, mv in pmt.items())
+                        self._log("MUTED", f"           {row}")
+                else:
+                    self._log("WARN", f"           [FAILED - score=0.0000] {result.get('reason', 'invalid evaluation')}")
 
-        if not results:
+        if not successful_results:
             self._log("ERROR", "All pipelines failed.")
-            q.put({"kind": "fail", "text": "All pipelines failed."})
+            q.put({"kind": "fail", "text": "All candidate pipelines failed to produce a valid evaluation."})
             return
 
         self._step("[7/9] Selecting best pipeline ...")
-        best = select_best(results, metric)
-        bs   = best["metrics"][metric]
-        sd   = best.get("metrics_std", {}).get(f"{metric}_std", 0.0)
+        best = select_best(successful_results, metric)
+        bs   = best.get("normalized_score", best.get("final_score", 0.0))
+        sd   = best.get("final_score_std", 0.0)
+        selected_metric = best.get("selected_metric", metric)
+        selected_raw = best.get("raw_metrics", best["metrics"]).get(selected_metric, 0.0)
         self._log("BEST", f"  > {best['spec'].name()}")
-        self._log("BEST", f"  > {metric.upper()} = {bs:.4f}  (+/- {sd:.4f})")
+        self._log("BEST", f"  > {selected_metric} = {selected_raw:.4f}")
+        self._log("BEST", f"  > normalized score = {bs:.4f}  (+/- {sd:.4f})")
 
         self._step("[8/9] Saving cleaned dataset ...")
         cleaned_path, cleaned_shape = save_cleaned_dataset(
@@ -332,10 +342,15 @@ class AgentWorker:
             "best_name":      best["spec"].name(),
             "best_score":     bs,
             "best_score_std": sd,
-            "metric":         metric,
+            "metric":         selected_metric,
             "metrics":        best["metrics"],
+            "raw_metrics":    best.get("raw_metrics", best["metrics"]),
             "metrics_std":    best.get("metrics_std", {}),
+            "normalized_metrics": best.get("normalized_metrics", {}),
+            "normalized_metrics_std": best.get("normalized_metrics_std", {}),
             "per_model":      best.get("per_model_metrics", {}),
+            "evaluation_mode": best.get("evaluation_mode", ""),
+            "evaluation_summary": best.get("evaluation_summary", ""),
             "n_splits":       best.get("n_splits", "?"),
             "n_models":       best.get("n_models", 1),
             "n_pipelines":    len(results),
@@ -532,38 +547,46 @@ class ImageAgentWorker:
 
             self._step("[7/9] Evaluating pipelines ...")
             results = []
+            successful_results = []
             for idx, spec in enumerate(pipelines, 1):
                 label = spec.name()
                 short = label if len(label) <= 52 else label[:49] + "..."
                 self._log("INFO", f"  [{idx:2d}/{len(pipelines)}]  {short}")
-                result = evaluate_image_pipeline(spec, profile)
+                result = evaluate_image_pipeline(spec, profile, config.task_type, config.metric)
                 if result:
                     results.append(result)
-                    m_val = result["metrics"][metric]
-                    n_m   = result.get("n_models", 1)
-                    self._log("METRIC",
-                              f"           {metric}={m_val:.4f}  "
-                              f"[{result['n_splits']}folds x {n_m}models "
-                              f"x {result['elapsed_sec']:.2f}s]")
-                    pmt = result.get("per_model_metrics", {})
-                    if pmt:
-                        row = "  ".join(f"{mn}={mv.get(metric, 0):.4f}"
-                                       for mn, mv in pmt.items())
-                        self._log("MUTED", f"           {row}")
-                else:
-                    self._log("WARN", "           [FAILED - skipped]")
+                    if result.get("success", True):
+                        successful_results.append(result)
+                        selected_metric = result.get("selected_metric", metric)
+                        m_val = result.get("raw_metrics", result["metrics"]).get(selected_metric, 0.0)
+                        s_val = result.get("normalized_score", result.get("final_score", 0.0))
+                        n_m = result.get("n_models", 1)
+                        self._log(
+                            "METRIC",
+                            f"           {selected_metric}={m_val:.4f}  "
+                            f"| normalized={s_val:.4f}  "
+                            f"[{result['n_splits']}folds x {n_m}models x {result['elapsed_sec']:.2f}s]"
+                        )
+                        pmt = result.get("per_model_metrics", {})
+                        if pmt:
+                            row = "  ".join(f"{mn}={mv.get(selected_metric, 0):.4f}" for mn, mv in pmt.items())
+                            self._log("MUTED", f"           {row}")
+                    else:
+                        self._log("WARN", f"           [FAILED - score=0.0000] {result.get('reason', 'invalid evaluation')}")
 
-            if not results:
+            if not successful_results:
                 self._log("ERROR", "All pipelines failed.")
-                q.put({"kind": "fail", "text": "All pipelines failed."})
+                q.put({"kind": "fail", "text": "All candidate image pipelines failed to produce a valid evaluation."})
                 return
 
             self._step("[8/9] Selecting best pipeline ...")
-            best = select_best(results, metric)
-            bs   = best["metrics"][metric]
-            sd   = best.get("metrics_std", {}).get(f"{metric}_std", 0.0)
+            best = select_best(successful_results, metric)
+            bs = best.get("normalized_score", best.get("final_score", 0.0))
+            selected_metric = best.get("selected_metric", metric)
+            sd = best.get("final_score_std", best.get("metrics_std", {}).get(f"{selected_metric}_std", 0.0))
             self._log("BEST", f"  > {best['spec'].name()}")
-            self._log("BEST", f"  > {metric.upper()} = {bs:.4f}  (+/- {sd:.4f})")
+            self._log("BEST", f"  > {selected_metric} = {best.get('raw_metrics', best['metrics']).get(selected_metric, 0.0):.4f}")
+            self._log("BEST", f"  > normalized score = {bs:.4f}  (+/- {sd:.4f})")
 
             self._step("[9/9] Saving processed zip ...")
             cleaned_path, cleaned_shape = save_processed_dataset(
@@ -620,10 +643,15 @@ class ImageAgentWorker:
                 "best_name":      best["spec"].name(),
                 "best_score":     bs,
                 "best_score_std": sd,
-                "metric":         metric,
+                "metric":         selected_metric,
                 "metrics":        best["metrics"],
+                "raw_metrics":    best.get("raw_metrics", best["metrics"]),
                 "metrics_std":    best.get("metrics_std", {}),
+                "normalized_metrics": best.get("normalized_metrics", {}),
+                "normalized_metrics_std": best.get("normalized_metrics_std", {}),
                 "per_model":      best.get("per_model_metrics", {}),
+                "evaluation_mode": best.get("evaluation_mode", ""),
+                "evaluation_summary": best.get("evaluation_summary", ""),
                 "n_splits":       best.get("n_splits", "?"),
                 "n_models":       best.get("n_models", 1),
                 "n_pipelines":    len(results),

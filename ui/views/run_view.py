@@ -1,6 +1,12 @@
 from __future__ import annotations
 
 import customtkinter as ctk
+from src.tabular.config import default_metric_for_task, metric_label, valid_metrics_for_task
+from src.image.config import (
+    _IMG_TASK_BACKEND as _IMG_TASK_BACKEND_CFG,
+    default_metric_for_task as image_default_metric_for_task,
+    valid_metrics_for_task as image_valid_metrics_for_task,
+)
 
 from ui.constants import (
     BG_WIN, BG_BAR, BG_INPUT,
@@ -42,15 +48,15 @@ _CSV_SUPERVISED_SET = set(_CSV_SUPERVISED_TASKS)
 _CSV_TASK_BACKEND = {
     "Binary classification":       "binary",
     "Multiclass classification":   "multiclass",
-    "Multi-label classification":  "multiclass",
+    "Multi-label classification":  "multilabel",
     "Regression":                  "regression",
-    "Ordinal regression":          "regression",
-    "Ranking / learning-to-rank":  "classification",
-    "Time-series forecasting":     "regression",
-    "Clustering":                  "other",
-    "Anomaly / outlier detection": "other",
-    "Dimensionality reduction":    "other",
-    "Association rule mining":     "other",
+    "Ordinal regression":          "ordinal",
+    "Ranking / learning-to-rank":  "ranking",
+    "Time-series forecasting":     "time_series",
+    "Clustering":                  "clustering",
+    "Anomaly / outlier detection": "anomaly",
+    "Dimensionality reduction":    "dimensionality_reduction",
+    "Association rule mining":     "association_rules",
 }
 
 _DOMAIN_OPTS = [
@@ -102,6 +108,8 @@ _IMG_TASK_OPTS = [
     "Image generation / synthesis",
     "Depth estimation",
 ]
+
+_IMG_TASK_BACKEND = dict(_IMG_TASK_BACKEND_CFG)
 
 _IMG_FORMAT_OPTS = [
     _SENTINEL,
@@ -519,10 +527,10 @@ class RunViewMixin:
         )
         self._csv_task_menu.pack(side="left", padx=(6, 0))
 
-        self._csv_fields_frame = ctk.CTkFrame(cfg_card, fg_color="transparent")
-        self._csv_fields_frame.pack(fill="x", pady=(0, 12))
+        self._csv_target_frame = ctk.CTkFrame(cfg_card, fg_color="transparent")
+        self._csv_target_frame.pack(fill="x")
 
-        r2 = ctk.CTkFrame(self._csv_fields_frame, fg_color="transparent")
+        r2 = ctk.CTkFrame(self._csv_target_frame, fg_color="transparent")
         r2.pack(fill="x", padx=14, pady=6)
         _req_label(r2, "Target column")
         self._target = ctk.CTkEntry(
@@ -533,12 +541,15 @@ class RunViewMixin:
         )
         self._target.pack(side="left", fill="x", expand=True, padx=(6, 0))
 
-        r3 = ctk.CTkFrame(self._csv_fields_frame, fg_color="transparent")
+        self._csv_metric_frame = ctk.CTkFrame(cfg_card, fg_color="transparent")
+        self._csv_metric_frame.pack(fill="x", pady=(0, 12))
+
+        r3 = ctk.CTkFrame(self._csv_metric_frame, fg_color="transparent")
         r3.pack(fill="x", padx=14, pady=(6, 14))
         _opt_label(r3, "Priority metric")
-        self._metric_var = ctk.StringVar(value="f1")
+        self._metric_var = ctk.StringVar(value=default_metric_for_task(_CSV_TASK_BACKEND.get(self._csv_task_var.get(), "")))
         self._metric_menu = ctk.CTkOptionMenu(
-            r3, values=["f1", "accuracy", "precision", "recall"],
+            r3, values=valid_metrics_for_task(_CSV_TASK_BACKEND.get(self._csv_task_var.get(), "")),
             variable=self._metric_var,
             fg_color=BG_INPUT, button_color=ACCENT, button_hover_color=ACCENT_H,
             dropdown_fg_color=BG_BAR, text_color=TXT,
@@ -579,26 +590,31 @@ class RunViewMixin:
         self._build_modality_section(modality)
         self._noncsv_spacer.pack_forget()
         self._csv_task_frame.pack_forget()
-        self._csv_fields_frame.pack_forget()
+        self._csv_target_frame.pack_forget()
+        self._csv_metric_frame.pack_forget()
 
         if modality == "CSV / Tabular":
+            self._csv_task_frame.pack(fill="x")
+            self._csv_metric_frame.pack(fill="x", pady=(0, 12))
             if self._csv_task_var.get() in _CSV_SUPERVISED_SET:
-                self._csv_task_frame.pack(fill="x")
-                self._csv_fields_frame.pack(fill="x", pady=(0, 12))
-            else:
-                self._csv_task_frame.pack(fill="x", pady=(0, 12))
+                self._csv_target_frame.pack(fill="x")
         else:
             self._noncsv_spacer.pack(fill="x", pady=(0, 12))
 
     def _on_csv_task_change(self, task: str) -> None:
         self._csv_task_frame.pack_forget()
-        self._csv_fields_frame.pack_forget()
+        self._csv_target_frame.pack_forget()
+        self._csv_metric_frame.pack_forget()
+        backend_task = _CSV_TASK_BACKEND.get(task, "")
+        metric_values = valid_metrics_for_task(backend_task)
+        if metric_values:
+            self._metric_menu.configure(values=metric_values)
+            self._metric_var.set(default_metric_for_task(backend_task))
 
+        self._csv_task_frame.pack(fill="x")
+        self._csv_metric_frame.pack(fill="x", pady=(0, 12))
         if task in _CSV_SUPERVISED_SET:
-            self._csv_task_frame.pack(fill="x")
-            self._csv_fields_frame.pack(fill="x", pady=(0, 12))
-        else:
-            self._csv_task_frame.pack(fill="x", pady=(0, 12))
+            self._csv_target_frame.pack(fill="x")
 
     def _build_modality_section(self, modality: str) -> None:
         for widget in self._modality_section.winfo_children():
@@ -650,14 +666,25 @@ class RunViewMixin:
             self._modality_context_vars["data_quality"] = quality_var
 
         elif modality == "Image":
+            def _on_image_task_change(task: str) -> None:
+                backend_task = _IMG_TASK_BACKEND.get(task, "classification")
+                metric_menu = getattr(self, "_image_metric_menu", None)
+                metric_var = self._modality_context_vars.get("metric")
+                values = image_valid_metrics_for_task(backend_task)
+                if metric_menu is not None and metric_var is not None and values:
+                    metric_menu.configure(values=values)
+                    metric_var.set(image_default_metric_for_task(backend_task))
+
             task_var = ctk.StringVar(value=_IMG_TASK_OPTS[0])
-            _ctx_row(ctx_card, "Task type", task_var, _IMG_TASK_OPTS, width=280)
+            _ctx_row(ctx_card, "Task type", task_var, _IMG_TASK_OPTS, width=280, command=_on_image_task_change)
             self._modality_context_vars["task_type"] = task_var
 
-            metric_var = ctk.StringVar(value="f1")
-            _ctx_row(ctx_card, "Priority metric", metric_var,
-                     ["f1", "accuracy", "precision", "recall"], width=140)
+            initial_task = _IMG_TASK_BACKEND.get(task_var.get(), "classification")
+            metric_values = image_valid_metrics_for_task(initial_task)
+            metric_var = ctk.StringVar(value=image_default_metric_for_task(initial_task))
+            _ctx_row(ctx_card, "Priority metric", metric_var, metric_values, width=180)
             self._modality_context_vars["metric"] = metric_var
+            self._image_metric_menu = self._modality_menus[-1]
 
             fmt_var = ctk.StringVar(value=_SENTINEL)
             _ctx_row(ctx_card, "Input format", fmt_var, _IMG_FORMAT_OPTS, width=200)
@@ -791,14 +818,14 @@ class RunViewMixin:
 
         if modality == "CSV / Tabular":
             raw_task = self._csv_task_var.get()
-            result["task_type"] = _CSV_TASK_BACKEND.get(raw_task, "classification")
+            result["task_type"] = _CSV_TASK_BACKEND.get(raw_task, "")
 
         return result
 
     def _clear_context_fields(self) -> None:
         self._target.delete(0, "end")
         self._notes.delete("1.0", "end")
-        self._metric_var.set("f1")
+        self._metric_var.set(default_metric_for_task(_CSV_TASK_BACKEND.get(self._csv_task_var.get(), "")))
         # To avoid visual flickering, do not reset modality or task type
         # which would trigger unnecessary UI layout repack operations.
         for var in self._modality_context_vars.values():
@@ -829,11 +856,22 @@ class RunViewMixin:
         ctk.CTkLabel(c1,
                      text=f"{msg['num_cols']} numeric  /  {msg['cat_cols']} categorical",
                      font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT_MUTED).pack(anchor="w", padx=14)
-        ir    = msg.get("imbalance_ratio", 1.0)
-        n_cls = msg.get("n_classes", "?")
-        ctk.CTkLabel(c1, text=f"{n_cls} classes  (ratio {ir:.1f}x)",
-                     font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT_MUTED).pack(
-            anchor="w", padx=14, pady=(0, 12))
+        task_type = msg.get("task_context", {}).get("task_type", "")
+        supervision = msg.get("task_context", {}).get("supervision", "")
+        if task_type in {"regression", "time_series"}:
+            ctk.CTkLabel(c1, text="Continuous target",
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT_MUTED).pack(
+                anchor="w", padx=14, pady=(0, 12))
+        elif supervision == "unsupervised":
+            ctk.CTkLabel(c1, text="Unsupervised tabular evaluation",
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT_MUTED).pack(
+                anchor="w", padx=14, pady=(0, 12))
+        else:
+            ir    = msg.get("imbalance_ratio", 1.0)
+            n_cls = msg.get("n_classes", "?")
+            ctk.CTkLabel(c1, text=f"{n_cls} classes  (ratio {ir:.1f}x)",
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT_MUTED).pack(
+                anchor="w", padx=14, pady=(0, 12))
 
         c2 = _card(cards_row)
         c2.pack(side="left", fill="both", expand=True, padx=6)
@@ -861,12 +899,13 @@ class RunViewMixin:
         _sec_label(c3, "METRICS", padx=14, pady=(10, 4))
         pmetric = msg["metric"]
         m       = msg["metrics"]
-        for mk in ["f1", "accuracy", "precision", "recall"]:
+        metric_names = valid_metrics_for_task(task_type)
+        for mk in metric_names:
             is_p = (mk == pmetric)
             mr   = ctk.CTkFrame(c3, fg_color="transparent")
             mr.pack(fill="x", padx=14, pady=1)
             ctk.CTkLabel(mr,
-                         text=mk.upper() if is_p else mk.capitalize(),
+                         text=metric_label(mk),
                          font=ctk.CTkFont(family=FONT_FAMILY, size=12,
                                           weight="bold" if is_p else "normal"),
                          text_color=ACCENT if is_p else TXT_MUTED,
@@ -875,6 +914,14 @@ class RunViewMixin:
                          font=ctk.CTkFont(family=FONT_FAMILY, size=12,
                                           weight="bold" if is_p else "normal"),
                          text_color=TXT if is_p else TXT_MUTED).pack(side="left")
+        ctk.CTkLabel(c3, text=f"Normalized score {msg['best_score']:.4f}",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=TXT_MUTED).pack(
+            anchor="w", padx=14, pady=(4, 0))
+        eval_mode = msg.get("evaluation_mode", "")
+        if eval_mode:
+            ctk.CTkLabel(c3, text=f"Evaluation mode: {eval_mode}",
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=TXT_MUTED).pack(
+                anchor="w", padx=14, pady=(2, 0))
         ctk.CTkLabel(c3,
                      text=f"{msg['n_splits']} folds  x  {msg['n_models']} models",
                      font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=TXT_MUTED).pack(
@@ -980,15 +1027,22 @@ class RunViewMixin:
         ctk.CTkLabel(c1, text=f"{msg['n_images']:,} images",
                      font=ctk.CTkFont(family=FONT_FAMILY, size=22, weight="bold"),
                      text_color=TXT).pack(anchor="w", padx=14)
+        task_type = msg.get("task_context", {}).get("task_type", "")
+        supervision = msg.get("task_context", {}).get("supervision", "")
         ctk.CTkLabel(c1, text=f"{msg['n_classes']} classes",
                      font=ctk.CTkFont(family=FONT_FAMILY, size=13), text_color=TXT_MUTED).pack(anchor="w", padx=14)
         ctk.CTkLabel(c1,
                      text=f"avg {msg['avg_height']}x{msg['avg_width']}  /  {msg.get('color_info', 'RGB')}",
                      font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT_MUTED).pack(anchor="w", padx=14)
-        ir = msg.get("imbalance_ratio", 1.0)
-        ctk.CTkLabel(c1, text=f"imbalance ratio {ir:.1f}x",
-                     font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT_MUTED).pack(
-            anchor="w", padx=14, pady=(0, 12))
+        if task_type in {"generation", "depth", "ocr", "retrieval"} or supervision == "unsupervised":
+            ctk.CTkLabel(c1, text=f"task: {task_type.replace('_', ' ')}",
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT_MUTED).pack(
+                anchor="w", padx=14, pady=(0, 12))
+        else:
+            ir = msg.get("imbalance_ratio", 1.0)
+            ctk.CTkLabel(c1, text=f"imbalance ratio {ir:.1f}x",
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT_MUTED).pack(
+                anchor="w", padx=14, pady=(0, 12))
 
         c2 = _card(cards_row)
         c2.pack(side="left", fill="both", expand=True, padx=6)
@@ -1015,21 +1069,30 @@ class RunViewMixin:
         c3.pack(side="left", fill="both", expand=True, padx=(6, 0))
         _sec_label(c3, "METRICS", padx=14, pady=(10, 4))
         pmetric = msg["metric"]
-        m       = msg["metrics"]
-        for mk in ["f1", "accuracy", "precision", "recall"]:
+        m = msg.get("raw_metrics", msg["metrics"])
+        metric_names = image_valid_metrics_for_task(task_type) or list(m.keys())
+        for mk in metric_names:
             is_p = (mk == pmetric)
             mr   = ctk.CTkFrame(c3, fg_color="transparent")
             mr.pack(fill="x", padx=14, pady=1)
             ctk.CTkLabel(mr,
-                         text=mk.upper() if is_p else mk.capitalize(),
+                         text=metric_label(mk),
                          font=ctk.CTkFont(family=FONT_FAMILY, size=12,
                                           weight="bold" if is_p else "normal"),
                          text_color=ACCENT if is_p else TXT_MUTED,
-                         width=74, anchor="w").pack(side="left")
+                         width=110, anchor="w").pack(side="left")
             ctk.CTkLabel(mr, text=f"{m[mk]:.4f}",
                          font=ctk.CTkFont(family=FONT_FAMILY, size=12,
                                           weight="bold" if is_p else "normal"),
                          text_color=TXT if is_p else TXT_MUTED).pack(side="left")
+        ctk.CTkLabel(c3, text=f"Normalized score {msg['best_score']:.4f}",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=TXT_MUTED).pack(
+            anchor="w", padx=14, pady=(4, 0))
+        eval_mode = msg.get("evaluation_mode", "")
+        if eval_mode:
+            ctk.CTkLabel(c3, text=f"Evaluation mode: {eval_mode}",
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=TXT_MUTED).pack(
+                anchor="w", padx=14, pady=(2, 0))
         ctk.CTkLabel(c3,
                      text=f"{msg['n_splits']} folds  x  {msg['n_models']} models",
                      font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=TXT_MUTED).pack(

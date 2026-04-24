@@ -53,6 +53,7 @@ from ui.constants import (
 )
 from ui.helpers import _open_file, _hsep
 from ui.worker import AgentWorker, ImageAgentWorker
+from src.tabular.config import default_metric_for_task
 from ui.views.run_view import RunViewMixin
 from ui.views.report_view import ReportViewMixin
 from ui.views.console_view import ConsoleViewMixin
@@ -333,7 +334,9 @@ class App(
             self._switch_view("console")
             return
 
-        if self._csv_fields_frame.winfo_ismapped():
+        ctx = self._get_context_fields()
+
+        if self._csv_target_frame.winfo_ismapped():
             target = self._target.get().strip()
             if not target:
                 self._clog("Please enter the target column name.", "ERROR")
@@ -342,9 +345,7 @@ class App(
             metric = self._metric_var.get()
         else:
             target = ""
-            metric = "f1"
-
-        ctx = self._get_context_fields()
+            metric = self._metric_var.get() or default_metric_for_task(ctx.get("task_type", ""))
 
         self._cleaned_path = None
         self._report_data  = None
@@ -354,7 +355,7 @@ class App(
 
         worker = AgentWorker(
             self._q, self._csv_path, target, metric,
-            task_type=ctx.get("task_type", "classification"),
+            task_type=ctx.get("task_type", ""),
             domain=ctx.get("domain", ""),
             constraints=ctx.get("constraints", ""),
             notes=ctx.get("notes", ""),

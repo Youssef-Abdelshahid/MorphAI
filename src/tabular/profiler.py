@@ -101,9 +101,9 @@ class DataProfile:
 
 def profile_dataset(df: pd.DataFrame, target: str) -> DataProfile:
     """Generate a comprehensive profile for a tabular classification dataset."""
-
-    feature_df = df.drop(columns=[target])
-    target_series = df[target]
+    target_exists = bool(target) and target in df.columns
+    feature_df = df.drop(columns=[target]) if target_exists else df.copy()
+    target_series = df[target] if target_exists else pd.Series(dtype="object")
 
     n_rows, n_cols = feature_df.shape
 
@@ -122,13 +122,13 @@ def profile_dataset(df: pd.DataFrame, target: str) -> DataProfile:
     n_duplicates = int(feature_df.duplicated().sum())
 
     # ── Class distribution ─────────────────────────────────────────────────
-    raw_counts = target_series.value_counts()
+    raw_counts = target_series.value_counts() if target_exists else pd.Series(dtype="int64")
     class_counts: Dict[str, int] = {str(k): int(v) for k, v in raw_counts.items()}
     n_classes = len(class_counts)
     counts_sorted = sorted(class_counts.values(), reverse=True)
-    min_class_size = counts_sorted[-1] if counts_sorted else 1
+    min_class_size = counts_sorted[-1] if counts_sorted else 0
     imbalance_ratio = (
-        counts_sorted[0] / counts_sorted[-1] if counts_sorted[-1] > 0 else float("inf")
+        counts_sorted[0] / counts_sorted[-1] if counts_sorted and counts_sorted[-1] > 0 else 1.0
     )
 
     # ── Outliers (IQR method) ──────────────────────────────────────────────
@@ -208,7 +208,7 @@ def profile_dataset(df: pd.DataFrame, target: str) -> DataProfile:
         n_cols=n_cols,
         num_cols=num_cols,
         cat_cols=cat_cols,
-        target_col=target,
+        target_col=target if target_exists else "",
         total_missing_ratio=total_missing_ratio,
         missing_per_col=missing_per_col,
         high_missing_cols=high_missing_cols,
@@ -239,8 +239,8 @@ def profile_dataset(df: pd.DataFrame, target: str) -> DataProfile:
         has_high_skew=len(high_skew_cols) > 0,
         has_high_kurtosis=len(high_kurtosis_cols) > 0,
         has_sparse_features=any(r > 0.5 for r in zero_ratios.values()),
-        is_imbalanced=imbalance_ratio > 1.5,
-        is_highly_imbalanced=imbalance_ratio > 3.0,
+        is_imbalanced=target_exists and imbalance_ratio > 1.5,
+        is_highly_imbalanced=target_exists and imbalance_ratio > 3.0,
         has_categorical=len(cat_cols) > 0,
         has_high_cardinality=len(high_cardinality_cols) > 0,
         has_constant_cols=len(constant_cols) > 0 or len(near_constant_cols) > 0,

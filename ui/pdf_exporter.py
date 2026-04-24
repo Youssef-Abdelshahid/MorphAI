@@ -18,6 +18,14 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
+from src.image.config import (
+    metric_label as image_metric_label,
+    valid_metrics_for_task as image_valid_metrics_for_task,
+)
+from src.tabular.config import (
+    metric_label as tabular_metric_label,
+    valid_metrics_for_task as tabular_valid_metrics_for_task,
+)
 
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
@@ -71,6 +79,13 @@ _M_PALETTE = [_M_BLUE, _M_GREEN, _M_PURPLE, _M_ORANGE, _M_CYAN, _M_MUTED]
 
 PAGE_W, PAGE_H = A4
 MARGIN = 1.8 * cm
+
+
+def metric_label(metric: str) -> str:
+    image_label = image_metric_label(metric)
+    if image_label != metric.replace("_", " ").title():
+        return image_label
+    return tabular_metric_label(metric)
 
 
 # ── Matplotlib helpers ────────────────────────────────────────────────────────
@@ -173,9 +188,10 @@ def _chart_pipeline_rankings(results: list, metric: str) -> Optional[str]:
     if not results:
         return None
     _set_rcparams()
+    use_normalized = any(("normalized_score" in r) or ("final_score" in r) for r in results)
     names  = [f"#{r['rank']}  {r['pipeline_name']}" for r in results]
-    scores = [r["metrics"].get(metric, 0) for r in results]
-    stds   = [r.get("metrics_std", {}).get(f"{metric}_std", 0) for r in results]
+    scores = [r.get("normalized_score", r.get("final_score", r["metrics"].get(metric, 0))) for r in results]
+    stds   = [r.get("final_score_std", r.get("normalized_score_std", r.get("metrics_std", {}).get(f"{metric}_std", 0))) for r in results]
     # Truncate to 38 chars, then pad to equal length so all labels left-align consistently
     names  = [n if len(n) <= 38 else n[:35] + "..." for n in names]
     max_len = max(len(n) for n in names)
@@ -189,8 +205,9 @@ def _chart_pipeline_rankings(results: list, metric: str) -> Optional[str]:
     ax.set_yticks(range(n))
     ax.set_yticklabels(names, fontsize=9, fontfamily="monospace")
     ax.invert_yaxis()
-    ax.set_xlabel(metric.upper(), fontsize=12, labelpad=8)
-    ax.set_title(f"Candidate Pipeline Rankings  ({metric.upper()})",
+    axis_label = "Normalized Score" if use_normalized else metric_label(metric)
+    ax.set_xlabel(axis_label, fontsize=12, labelpad=8)
+    ax.set_title(f"Candidate Pipeline Rankings  ({axis_label})",
                  fontsize=14, fontweight="bold", pad=38)
     ax.set_xlim(0, min(1.0, max(scores) * 1.45))
     _style_ax(ax, grid="x")
@@ -212,8 +229,8 @@ def _chart_metrics_overview(metrics: dict, metrics_std: dict, metric: str) -> Op
     if not metrics:
         return None
     _set_rcparams()
-    keys   = ["accuracy", "f1", "precision", "recall"]
-    labels = ["Accuracy", "F1", "Precision", "Recall"]
+    keys   = list(metrics.keys())
+    labels = [metric_label(k) for k in keys]
     vals   = [metrics.get(k, 0) for k in keys]
     stds   = [metrics_std.get(f"{k}_std", 0) for k in keys]
     clrs   = [_M_GREEN if k == metric else _M_BLUE for k in keys]
@@ -231,7 +248,7 @@ def _chart_metrics_overview(metrics: dict, metrics_std: dict, metric: str) -> Op
                      padding=5, fontsize=12, fontweight="bold", color="#1e293b")
     except Exception:
         pass
-    primary_p = mpatches.Patch(color=_M_GREEN, label=f"Primary metric ({metric.upper()})")
+    primary_p = mpatches.Patch(color=_M_GREEN, label=f"Primary metric ({metric_label(metric)})")
     other_p   = mpatches.Patch(color=_M_BLUE,  label="Other metrics")
     ax.legend(handles=[primary_p, other_p], fontsize=12,
               loc="lower center", bbox_to_anchor=(0.5, 1.01),
@@ -245,8 +262,8 @@ def _chart_per_model(per_model: dict) -> Optional[str]:
         return None
     _set_rcparams()
     model_names   = list(per_model.keys())
-    metric_keys   = ["accuracy", "f1", "precision", "recall"]
-    metric_labels = ["Accuracy", "F1", "Precision", "Recall"]
+    metric_keys   = list(next(iter(per_model.values())).keys())
+    metric_labels = [metric_label(mk) for mk in metric_keys]
     x       = np.arange(len(metric_keys))
     width   = 0.20
     n       = len(model_names)
@@ -467,13 +484,17 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
     prof    = report.get("profile_summary", {})
     best    = report.get("best_pipeline", {})
     results = report.get("results", [])
-    metric  = cfg.get("metric", "f1")
-    m       = best.get("metrics", {})
+    metric  = best.get("selected_metric", cfg.get("metric", "f1"))
+    m       = best.get("raw_metrics", best.get("metrics", {}))
     std     = best.get("metrics_std", {})
     pmt     = best.get("per_model_metrics", {})
     expl    = report.get("explanation", "")
     tc      = report.get("task_context", {})
     lrn     = report.get("learning_summary", {})
+    is_image = report.get("modality") == "Image"
+    valid_metrics_fn = image_valid_metrics_for_task if is_image else tabular_valid_metrics_for_task
+    metric_names = valid_metrics_fn(tc.get("task_type", "")) or list(m.keys())
+    has_normalized_score = ("normalized_score" in best) or ("final_score" in best)
 
     ds_name = Path(cfg.get("data_path", "—")).name
     ts_raw  = report.get("timestamp", "")
@@ -482,12 +503,11 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
     except Exception:
         ts_fmt = ts_raw
 
-    best_score   = m.get(metric, 0)
+    best_score   = best.get("normalized_score", best.get("final_score", m.get(metric, 0)))
     n_pipelines  = len(results)
     n_rows_prof  = prof.get("n_rows", 0)
     n_cols_prof  = prof.get("n_cols", 0)
     best_name     = best.get("name", "—")
-    is_image      = report.get("modality") == "Image"
     n_images_prof = prof.get("n_images", 0)
     n_classes_prof = prof.get("n_classes", 0)
     # ── Document ──────────────────────────────────────────────────────────
@@ -552,14 +572,14 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
             meta_items = [
                 ("Dataset",         ds_name),
                 ("Modality",        "Image"),
-                ("Priority metric", cfg.get("metric", "—").upper()),
+                ("Priority metric", metric_label(metric)),
                 ("Generated",       ts_fmt),
             ]
         else:
             meta_items = [
                 ("Dataset",         ds_name),
                 ("Target column",   cfg.get("target", "—")),
-                ("Priority metric", cfg.get("metric", "—").upper()),
+                ("Priority metric", metric_label(metric)),
                 ("Generated",       ts_fmt),
             ]
         for i, (label, value) in enumerate(meta_items):
@@ -766,7 +786,7 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
     # KPI cards — 3 equal cards (Score / Candidates / Dataset)
     kw3 = (available_w - 0.6 * cm) / 3
     kpi_tbl = Table([[
-        _kpi_card("Best Score", f"{best_score:.4f}", metric.upper(),
+        _kpi_card("Best Score", f"{best_score:.4f}", "Normalized" if has_normalized_score else metric_label(metric),
                   _C_KPI_BG, _C_KPI_VAL, _C_KPI_BRD, width=kw3),
         _kpi_card("Candidates", str(n_pipelines), "pipelines evaluated",
                   _C_KPI_BG, _C_KPI_VAL, _C_KPI_BRD, width=kw3),
@@ -851,7 +871,7 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
     else:
         ov_rows.append(["Target column", cfg.get("target", "—")])
     ov_rows += [
-        ["Priority metric",   cfg.get("metric", "—").upper()],
+        ["Priority metric",   metric_label(metric)],
         ["Pipelines tested",  str(report.get("pipelines_tested", "—"))],
         ["Models / pipeline", str(report.get("n_models", "—"))],
         ["Timestamp",         ts_fmt],
@@ -964,13 +984,14 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
     if chart_pipeline:
         n_p = len(results)
         story.append(_fw_image(chart_pipeline, available_w))
+        caption_metric = "normalized score" if has_normalized_score else metric_label(metric)
         story.append(_p(
-            f"All {n_p} candidate pipelines ranked by {metric.upper()}  "
+            f"All {n_p} candidate pipelines ranked by {caption_metric}  "
             f"(green = best  |  error bars = inter-model std deviation)", caption_sty))
         story.append(Spacer(1, 0.5 * cm))
 
-    _all_met   = ["accuracy", "f1", "precision", "recall"]
-    _met_label = {"accuracy": "Acc", "f1": "F1", "precision": "Prec", "recall": "Rec"}
+    _all_met   = metric_names
+    _met_label = {mk: metric_label(mk) for mk in _all_met}
     _other_met = [mk for mk in _all_met if mk != metric]
     cw_rank = 0.55 * cm
     cw_time = 1.55 * cm
@@ -978,7 +999,7 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
     cw_name = available_w - cw_rank - cw_met * (1 + len(_other_met)) - cw_time
 
     rank_hdr = ([Paragraph("#", pipe_hdr_sty), Paragraph("Pipeline", pipe_hdr_sty),
-                 Paragraph(metric.upper(), pipe_hdr_sty)]
+                 Paragraph("Score" if has_normalized_score else metric_label(metric), pipe_hdr_sty)]
                 + [Paragraph(_met_label[mk], pipe_hdr_sty) for mk in _other_met]
                 + [Paragraph("Time (s)", pipe_hdr_sty)])
     rank_rows = [rank_hdr]
@@ -987,7 +1008,7 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
         rank_rows.append(
             [str(r.get("rank", "?")),
              Paragraph(r.get("pipeline_name", ""), pipe_nm_sty),
-             f"{rm.get(metric, 0):.4f}"]
+             f"{r.get('normalized_score', r.get('final_score', rm.get(metric, 0))):.4f}"]
             + [f"{rm.get(mk, 0):.4f}" for mk in _other_met]
             + [f"{r.get('elapsed_sec', 0):.2f}"]
         )
@@ -1021,6 +1042,8 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
         ["Models evaluated",  str(best.get("n_models", "?"))],
         ["Elapsed",           f"{best.get('elapsed_sec', 0):.2f} s"],
     ]
+    if has_normalized_score:
+        sum_rows.insert(3, ["Normalized score",  f"{best.get('normalized_score', best.get('final_score', 0)):.4f}"])
     story.append(_tbl(sum_rows, [5.5 * cm, available_w - 5.5 * cm],
                       extra=[("BACKGROUND", (1, 0), (1, 0), colors.HexColor("#f0fdf4")),
                               ("TEXTCOLOR",  (1, 0), (1, 0), _C_TBL_TXT),
@@ -1041,10 +1064,10 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
                  Paragraph("± Std", pipe_hdr_sty),
                  Paragraph("Status", pipe_hdr_sty)]]
     met_extra = [("ALIGN", (1, 1), (2, -1), "RIGHT")]
-    for i, mk in enumerate(["accuracy", "f1", "precision", "recall"], 1):
+    for i, mk in enumerate(metric_names, 1):
         is_p = (mk == metric)
         met_rows.append([
-            f"{'★  ' if is_p else ''}{mk.upper() if is_p else mk.capitalize()}",
+            f"{'★  ' if is_p else ''}{metric_label(mk)}",
             f"{m.get(mk, 0):.4f}",
             f"± {std.get(mk+'_std', 0):.4f}",
             "★  Primary" if is_p else "—",
@@ -1067,8 +1090,8 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
         pm_extra = [("ALIGN", (1, 1), (-1, -1), "RIGHT")]
         pm_rows  = [[Paragraph("Metric", pipe_hdr_sty)]
                     + [Paragraph(mn.capitalize(), pipe_hdr_sty) for mn in mn_list]]
-        for mk in ["accuracy", "f1", "precision", "recall"]:
-            pm_rows.append([mk.capitalize()] + [f"{pmt[mn].get(mk, 0):.4f}" for mn in mn_list])
+        for mk in metric_names:
+            pm_rows.append([metric_label(mk)] + [f"{pmt[mn].get(mk, 0):.4f}" for mn in mn_list])
         cw_pm = available_w / (len(mn_list) + 1)
         story.append(_tbl(pm_rows, [cw_pm] * (len(mn_list) + 1), extra=pm_extra))
         story.append(Spacer(1, 0.3 * cm))

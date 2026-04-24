@@ -7,12 +7,26 @@ import numpy as np
 
 MEMORY_DIR        = Path("memory") / "tabular"
 META_LEARNER_FILE = MEMORY_DIR / "meta_learner.pkl"
+_SCORE_SYSTEM = "normalized_v2"
 
 MIN_RUNS_TO_USE      = 5
 MIN_RUNS_FULL_WEIGHT  = 20
 MAX_META_WEIGHT      = 0.25
 
-_TASK_TYPES    = ["classification", "binary", "multiclass", "regression", "other"]
+_TASK_TYPES    = [
+    "binary",
+    "multiclass",
+    "multilabel",
+    "regression",
+    "ordinal",
+    "ranking",
+    "time_series",
+    "clustering",
+    "anomaly",
+    "dimensionality_reduction",
+    "association_rules",
+    "other",
+]
 _TASK_TYPE_MAP = {t: i for i, t in enumerate(_TASK_TYPES)}
 
 _NUM_IMP_MAP   = {"mean": 0, "median": 1, "knn": 2}
@@ -37,8 +51,8 @@ _DATA_QUALITY_MAP = {
 
 
 def _encode_task_type(task_type: str) -> float:
-    idx = _TASK_TYPE_MAP.get((task_type or "other").lower().strip(), 4)
-    return idx / 4.0
+    idx = _TASK_TYPE_MAP.get((task_type or "other").lower().strip(), len(_TASK_TYPES) - 1)
+    return idx / max(len(_TASK_TYPES) - 1, 1)
 
 
 def _encode_domain(domain: str) -> float:
@@ -61,13 +75,29 @@ def _encode_supervision(supervision: str) -> float:
 
 def _encode_task_type_bin(task_type: str) -> float:
     t = (task_type or "").lower()
-    if t in ("binary", "classification"):
+    if t == "binary":
         return 0.0
     if t == "multiclass":
-        return 0.5
+        return 0.1
+    if t == "multilabel":
+        return 0.2
     if t == "regression":
+        return 0.35
+    if t == "ordinal":
+        return 0.45
+    if t == "ranking":
+        return 0.55
+    if t == "time_series":
+        return 0.65
+    if t == "clustering":
+        return 0.75
+    if t == "anomaly":
+        return 0.85
+    if t == "dimensionality_reduction":
+        return 0.92
+    if t == "association_rules":
         return 1.0
-    return 0.25
+    return 0.5
 
 
 def _profile_features(profile_summary: dict) -> List[float]:
@@ -131,8 +161,12 @@ class MetaLearner:
                 model = data.get("model")
                 n_train = int(data.get("n_train", 0))
                 stored_feature_size = int(data.get("feature_size", 21))
+                score_system = data.get("score_system")
                 current_feature_size = len(_build_feature_vector({}, {}, {}))
-                if stored_feature_size != current_feature_size:
+                if (
+                    stored_feature_size != current_feature_size
+                    or score_system != _SCORE_SYSTEM
+                ):
                     self._model   = None
                     self._n_train = 0
                 else:
@@ -150,6 +184,7 @@ class MetaLearner:
                 "model":        self._model,
                 "n_train":      self._n_train,
                 "feature_size": current_feature_size,
+                "score_system": _SCORE_SYSTEM,
             }, fh)
 
     @property
@@ -183,13 +218,12 @@ class MetaLearner:
         for run in runs:
             task_context    = run.get("task_context", {})
             profile_summary = run.get("profile_summary", {})
-            metric          = run.get("metric_priority", "f1")
             all_pipelines   = run.get("all_pipelines_tested", [])
 
             if all_pipelines:
                 for entry in all_pipelines:
                     pipe_dict = entry.get("pipeline_config") or entry.get("pipeline")
-                    score     = entry.get("metrics", {}).get(metric)
+                    score     = entry.get("final_score")
                     if pipe_dict and score is not None:
                         fv = _build_feature_vector(task_context, profile_summary, pipe_dict)
                         X.append(fv)

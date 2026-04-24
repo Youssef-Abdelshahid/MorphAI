@@ -62,13 +62,15 @@ def generate_pipelines(
 
     tc = task_context or {}
     constraints = tc.get("active_constraints") or []
+    task_type = tc.get("task_type", "classification")
+    classification_like = task_type in {"classification", "multilabel", "anomaly"}
 
     use_heq      = profile.has_low_contrast or profile.has_high_contrast_variance
     use_denoise  = profile.has_varied_brightness
     use_sharpen  = profile.has_low_contrast
     use_gray     = profile.has_mostly_grayscale
-    need_oversample = profile.is_imbalanced
-    heavily_imbalanced = profile.is_highly_imbalanced
+    need_oversample = profile.is_imbalanced if classification_like else False
+    heavily_imbalanced = profile.is_highly_imbalanced if classification_like else False
 
     primary_color = "grayscale" if use_gray else "rgb"
     secondary_color = "rgb" if use_gray else "grayscale"
