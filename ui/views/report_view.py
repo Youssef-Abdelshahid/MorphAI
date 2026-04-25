@@ -13,6 +13,10 @@ from src.image.config import (
     metric_label as image_metric_label,
     valid_metrics_for_task as image_valid_metrics_for_task,
 )
+from src.audio.config import (
+    metric_label as audio_metric_label,
+    valid_metrics_for_task as audio_valid_metrics_for_task,
+)
 from src.tabular.config import (
     metric_label as tabular_metric_label,
     valid_metrics_for_task as tabular_valid_metrics_for_task,
@@ -86,8 +90,9 @@ class ReportViewMixin:
         task_type = report.get("task_context", {}).get("task_type", "")
         P        = 22   # padx for all sections
         is_image = report.get("modality") == "Image" or "n_images" in prof
-        metric_label_fn = image_metric_label if is_image else tabular_metric_label
-        valid_metrics_fn = image_valid_metrics_for_task if is_image else tabular_valid_metrics_for_task
+        is_audio = report.get("modality") == "Audio" or "n_audio_files" in prof
+        metric_label_fn = audio_metric_label if is_audio else image_metric_label if is_image else tabular_metric_label
+        valid_metrics_fn = audio_valid_metrics_for_task if is_audio else image_valid_metrics_for_task if is_image else tabular_valid_metrics_for_task
         metric_names = valid_metrics_fn(task_type) or list(best.get("metrics", {}).keys())
         has_normalized_score = "final_score" in best
 
@@ -160,6 +165,8 @@ class ReportViewMixin:
                         _chart_dataset_composition, _chart_profile_issues,
                         _chart_image_class_distribution, _chart_image_quality_flags,
                         _chart_image_dimensions,
+                        _chart_audio_label_distribution, _chart_audio_duration_distribution,
+                        _chart_audio_quality_flags,
                         _chart_metrics_overview, _chart_per_model,
                         _chart_pipeline_rankings,
                     )
@@ -190,6 +197,15 @@ class ReportViewMixin:
 
                         c_dims = _lc(_chart_image_dimensions, prof)
                         self.after(0, lambda: _inject_chart("_c_dims", c_dims))
+                    elif is_audio:
+                        c1 = _lc(_chart_audio_label_distribution, prof)
+                        self.after(0, lambda: _inject_chart("_c_comp", c1))
+
+                        c2 = _lc(_chart_audio_duration_distribution, prof)
+                        self.after(0, lambda: _inject_chart("_c_dur", c2))
+
+                        c3a = _lc(_chart_audio_quality_flags, prof)
+                        self.after(0, lambda: _inject_chart("_c_qual", c3a))
                     else:
                         c1 = _lc(_chart_dataset_composition, prof)
                         self.after(0, lambda: _inject_chart("_c_comp", c1))
@@ -241,7 +257,7 @@ class ReportViewMixin:
         c.pack(fill="x", padx=P, pady=(0, 4))
         kv_row(c, "Run timestamp",     ts_fmt)
         kv_row(c, "Dataset",           cfg.get("data_path", "—"))
-        if cfg.get("target"):
+        if cfg.get("target") and not (is_image or is_audio):
             kv_row(c, "Target column",     cfg.get("target", "—"))
         kv_row(c, "Priority metric",   metric_label_fn(metric))
         if report.get("modality"):
@@ -304,6 +320,21 @@ class ReportViewMixin:
                    "Yes" if prof.get("has_small_images") else "No")
             kv_row(c, "Large images (>1024px)",
                    "Yes" if prof.get("has_large_images") else "No")
+        elif is_audio:
+            kv_row(c, "Audio files", f"{prof.get('n_audio_files', '?'):,}")
+            kv_row(c, "Total duration", f"{prof.get('total_duration_sec', 0):.2f}s")
+            kv_row(c, "Avg duration", f"{prof.get('avg_duration_sec', 0):.2f}s  (std={prof.get('duration_std_sec', 0):.2f}s)")
+            kv_row(c, "Duration range", f"{prof.get('min_duration_sec', 0):.2f}s to {prof.get('max_duration_sec', 0):.2f}s")
+            kv_row(c, "Classes", f"{prof.get('n_classes', '?')}  (imbalance ratio = {prof.get('imbalance_ratio', 1):.1f}x)")
+            kv_row(c, "Sample rates", str(prof.get("sample_rate_distribution", {})))
+            kv_row(c, "Channels", str(prof.get("channel_count_distribution", {})))
+            kv_row(c, "Bit depth", str(prof.get("bit_depth_distribution", {})))
+            kv_row(c, "Formats", str(prof.get("file_format_distribution", {})))
+            kv_row(c, "Duration distribution", str(prof.get("duration_distribution", {})))
+            kv_row(c, "Label distribution", str(prof.get("label_distribution", prof.get("class_counts", {}))))
+            kv_row(c, "Corrupt / silent / clipped", f"{prof.get('n_corrupt', 0)} / {prof.get('n_silent', 0)} / {prof.get('n_clipped', 0)}")
+            kv_row(c, "RMS / noise proxy", f"{prof.get('avg_rms', 0):.6f} / {prof.get('estimated_noise_ratio', 0):.4f}")
+            kv_row(c, "Transcripts / speaker labels", f"{prof.get('transcript_count', 0)} / {prof.get('speaker_label_count', 0)}")
         else:
             kv_row(c, "Rows",
                    f"{prof.get('n_rows', '?'):,}")
@@ -333,7 +364,11 @@ class ReportViewMixin:
             _add_chart("_c_comp", "Class distribution")
             _add_chart("_c_qual", "Image quality flags")
             _add_chart("_c_dims", "Image dimension statistics")
-        else:
+        elif is_audio:
+            _add_chart("_c_comp", "Audio label distribution")
+            _add_chart("_c_dur", "Duration distribution")
+            _add_chart("_c_qual", "Audio quality indicators")
+        elif not is_audio:
             _add_chart("_c_comp", "Feature composition")
             _add_chart("_c_qual", "Dataset quality indicators")
 

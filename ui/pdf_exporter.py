@@ -22,6 +22,10 @@ from src.image.config import (
     metric_label as image_metric_label,
     valid_metrics_for_task as image_valid_metrics_for_task,
 )
+from src.audio.config import (
+    metric_label as audio_metric_label,
+    valid_metrics_for_task as audio_valid_metrics_for_task,
+)
 from src.tabular.config import (
     metric_label as tabular_metric_label,
     valid_metrics_for_task as tabular_valid_metrics_for_task,
@@ -82,6 +86,9 @@ MARGIN = 1.8 * cm
 
 
 def metric_label(metric: str) -> str:
+    audio_label = audio_metric_label(metric)
+    if audio_label != metric.replace("_", " ").title():
+        return audio_label
     image_label = image_metric_label(metric)
     if image_label != metric.replace("_", " ").title():
         return image_label
@@ -238,7 +245,8 @@ def _chart_metrics_overview(metrics: dict, metrics_std: dict, metric: str) -> Op
     fig, ax = plt.subplots(figsize=(8.5, 3.5))
     bars = ax.bar(labels, vals, color=clrs, width=0.45,
                   yerr=stds, error_kw={"ecolor": "#94a3b8", "capsize": 5, "linewidth": 1.0})
-    ax.set_ylim(0, 1.20)
+    upper = 1.20 if not vals or max(vals) <= 1.0 else max(vals) * 1.20
+    ax.set_ylim(0, upper)
     ax.set_ylabel("Score", fontsize=13, labelpad=8)
     ax.set_title("Best Pipeline — Evaluation Metrics",
                  fontsize=15, fontweight="bold", pad=38)
@@ -282,7 +290,9 @@ def _chart_per_model(per_model: dict) -> Optional[str]:
             pass
     ax.set_xticks(x)
     ax.set_xticklabels(metric_labels, fontsize=12)
-    ax.set_ylim(0, 1.28)
+    all_vals = [per_model[mn].get(mk, 0) for mn in model_names for mk in metric_keys]
+    upper = 1.28 if not all_vals or max(all_vals) <= 1.0 else max(all_vals) * 1.20
+    ax.set_ylim(0, upper)
     ax.set_ylabel("Score", fontsize=13, labelpad=8)
     ax.set_title("Per-Model Breakdown — Best Pipeline", fontsize=15, fontweight="bold", pad=38)
     ax.legend(title=None, fontsize=12, framealpha=0.9, edgecolor="#cbd5e1",
@@ -435,6 +445,82 @@ def _chart_image_dimensions(prof: dict) -> Optional[str]:
     return _save_fig(fig)
 
 
+def _chart_audio_label_distribution(prof: dict) -> Optional[str]:
+    label_counts = prof.get("label_distribution") or prof.get("class_counts", {})
+    if not label_counts:
+        return None
+    _set_rcparams()
+    labels = sorted(label_counts.keys())
+    values = [label_counts[label] for label in labels]
+    max_v = max(values)
+    colors_ = [_M_GREEN if value == max_v else _M_BLUE for value in values]
+    fig, ax = plt.subplots(figsize=(8.5, max(2.5, len(labels) * 0.45 + 1.0)))
+    bars = ax.barh(range(len(labels)), values, color=colors_, height=0.42)
+    ax.set_yticks(range(len(labels)))
+    ax.set_yticklabels(labels, fontsize=10)
+    ax.invert_yaxis()
+    ax.set_xlabel("Audio files", fontsize=13, labelpad=8)
+    ax.set_title("Audio Label Distribution", fontsize=15, fontweight="bold", pad=14)
+    _style_ax(ax, grid="x")
+    try:
+        ax.bar_label(bars, labels=[str(v) for v in values], padding=4, fontsize=9)
+    except Exception:
+        pass
+    ax.margins(x=0.16)
+    fig.tight_layout()
+    return _save_fig(fig)
+
+
+def _chart_audio_duration_distribution(prof: dict) -> Optional[str]:
+    duration_counts = prof.get("duration_distribution", {})
+    if not duration_counts:
+        return None
+    _set_rcparams()
+    order = ["<1s", "1-5s", "5-15s", "15-60s", "60s+"]
+    labels = [label for label in order if label in duration_counts]
+    labels += [label for label in duration_counts if label not in labels]
+    values = [duration_counts[label] for label in labels]
+    fig, ax = plt.subplots(figsize=(8.5, 3.2))
+    bars = ax.bar(labels, values, color=_M_CYAN, width=0.5)
+    ax.set_ylabel("Files", fontsize=13, labelpad=8)
+    ax.set_title("Duration Distribution", fontsize=15, fontweight="bold", pad=14)
+    _style_ax(ax, grid="y")
+    try:
+        ax.bar_label(bars, labels=[str(v) for v in values], padding=4, fontsize=9)
+    except Exception:
+        pass
+    fig.tight_layout()
+    return _save_fig(fig)
+
+
+def _chart_audio_quality_flags(prof: dict) -> Optional[str]:
+    items = [
+        ("Corrupt", prof.get("n_corrupt", 0)),
+        ("Silent", prof.get("n_silent", 0)),
+        ("Clipped", prof.get("n_clipped", 0)),
+        ("Missing labels", prof.get("missing_invalid_labels", 0)),
+    ]
+    if not any(value for _, value in items):
+        return None
+    _set_rcparams()
+    labels = [label for label, _ in items]
+    values = [value for _, value in items]
+    colors_ = [_M_ORANGE if value else _M_MUTED for value in values]
+    fig, ax = plt.subplots(figsize=(8.5, 3.0))
+    bars = ax.barh(labels, values, color=colors_, height=0.42)
+    ax.invert_yaxis()
+    ax.set_xlabel("Count", fontsize=13, labelpad=8)
+    ax.set_title("Audio Quality Indicators", fontsize=15, fontweight="bold", pad=14)
+    _style_ax(ax, grid="x")
+    try:
+        ax.bar_label(bars, labels=[str(v) for v in values], padding=4, fontsize=9)
+    except Exception:
+        pass
+    ax.margins(x=0.16)
+    fig.tight_layout()
+    return _save_fig(fig)
+
+
 # ── Document ──────────────────────────────────────────────────────────────────
 
 def _readable_pipeline(name: str) -> str:
@@ -492,7 +578,8 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
     tc      = report.get("task_context", {})
     lrn     = report.get("learning_summary", {})
     is_image = report.get("modality") == "Image"
-    valid_metrics_fn = image_valid_metrics_for_task if is_image else tabular_valid_metrics_for_task
+    is_audio = report.get("modality") == "Audio"
+    valid_metrics_fn = audio_valid_metrics_for_task if is_audio else image_valid_metrics_for_task if is_image else tabular_valid_metrics_for_task
     metric_names = valid_metrics_fn(tc.get("task_type", "")) or list(m.keys())
     has_normalized_score = ("normalized_score" in best) or ("final_score" in best)
 
@@ -509,7 +596,9 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
     n_cols_prof  = prof.get("n_cols", 0)
     best_name     = best.get("name", "—")
     n_images_prof = prof.get("n_images", 0)
+    n_audio_prof = prof.get("n_audio_files", 0)
     n_classes_prof = prof.get("n_classes", 0)
+    total_duration_prof = prof.get("total_duration_sec", 0)
     # ── Document ──────────────────────────────────────────────────────────
     doc = SimpleDocTemplate(
         str(output_path),
@@ -572,6 +661,13 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
             meta_items = [
                 ("Dataset",         ds_name),
                 ("Modality",        "Image"),
+                ("Priority metric", metric_label(metric)),
+                ("Generated",       ts_fmt),
+            ]
+        elif is_audio:
+            meta_items = [
+                ("Dataset",         ds_name),
+                ("Modality",        "Audio"),
                 ("Priority metric", metric_label(metric)),
                 ("Generated",       ts_fmt),
             ]
@@ -760,16 +856,25 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
         chart_class_dist = _chart_image_class_distribution(prof)
         chart_quality    = _chart_image_quality_flags(prof)
         chart_dims       = _chart_image_dimensions(prof)
+        chart_duration   = None
+        chart_profile    = None
+        chart_comp       = None
+    elif is_audio:
+        chart_class_dist = _chart_audio_label_distribution(prof)
+        chart_quality    = _chart_audio_quality_flags(prof)
+        chart_dims       = None
+        chart_duration   = _chart_audio_duration_distribution(prof)
         chart_profile    = None
         chart_comp       = None
     else:
         chart_class_dist = None
         chart_quality    = None
         chart_dims       = None
+        chart_duration   = None
         chart_profile    = _chart_profile_issues(prof)
         chart_comp       = _chart_dataset_composition(prof)
     for c in [chart_pipeline, chart_metrics, chart_per_model, chart_profile, chart_comp,
-              chart_class_dist, chart_quality, chart_dims]:
+              chart_class_dist, chart_quality, chart_dims, chart_duration]:
         if c:
             tmp_files.append(c)
 
@@ -783,6 +888,16 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
     story.append(_section_bar("01", "Executive Summary"))
     story.append(Spacer(1, 0.55 * cm))
 
+    if is_audio:
+        dataset_kpi_value = f"{n_audio_prof:,} audio files"
+        dataset_kpi_subtitle = f"{total_duration_prof:.1f}s total"
+    elif is_image:
+        dataset_kpi_value = f"{n_images_prof:,} images"
+        dataset_kpi_subtitle = f"{n_classes_prof} classes"
+    else:
+        dataset_kpi_value = f"{n_rows_prof:,} rows"
+        dataset_kpi_subtitle = f"{n_cols_prof} features"
+
     # KPI cards — 3 equal cards (Score / Candidates / Dataset)
     kw3 = (available_w - 0.6 * cm) / 3
     kpi_tbl = Table([[
@@ -791,8 +906,8 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
         _kpi_card("Candidates", str(n_pipelines), "pipelines evaluated",
                   _C_KPI_BG, _C_KPI_VAL, _C_KPI_BRD, width=kw3),
         _kpi_card("Dataset",
-                  f"{n_images_prof:,} images" if is_image else f"{n_rows_prof:,} rows",
-                  f"{n_classes_prof} classes" if is_image else f"{n_cols_prof} features",
+                  dataset_kpi_value,
+                  dataset_kpi_subtitle,
                   _C_KPI_BG, _C_KPI_VAL, _C_KPI_BRD, width=kw3),
     ]], colWidths=[kw3] * 3)
     kpi_tbl.setStyle(TableStyle([
@@ -826,7 +941,15 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
         "vflip":  "V-Flip Augmentation",
         "rot":    "Rotation Augmentation",
         "jitter": "Color Jitter",
+        "sr":     "Sample Rate",
+        "ch":     "Channels",
+        "feat":   "Audio Representation",
+        "dur":    "Duration Handling",
+        "noise":  "Noise Filter",
+        "aug":    "Audio Augmentation",
     }
+    if is_audio:
+        _step_lm["clip"] = "Clipping Handling"
     _kpi_val10_sty = _sty("kv10", fontSize=10, textColor=_C_KPI_VAL,
                            fontName="Helvetica-Bold", leading=13)
     pipe_tbl_w = available_w - 0.6 * cm
@@ -868,6 +991,8 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
     ]
     if is_image:
         ov_rows.append(["Modality", "Image"])
+    elif is_audio:
+        ov_rows.append(["Modality", "Audio"])
     else:
         ov_rows.append(["Target column", cfg.get("target", "—")])
     ov_rows += [
@@ -940,6 +1065,46 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
             story.append(Spacer(1, 0.4 * cm))
         if chart_dims:
             story.append(_fw_image(chart_dims, available_w))
+            story.append(Spacer(1, 0.3 * cm))
+    elif is_audio:
+        sr_dist = prof.get("sample_rate_distribution", {})
+        ch_dist = prof.get("channel_count_distribution", {})
+        bit_dist = prof.get("bit_depth_distribution", {})
+        fmt_dist = prof.get("file_format_distribution", {})
+        audio_prof_rows = [
+            [Paragraph("Metric", pipe_hdr_sty), Paragraph("Value", pipe_hdr_sty),
+             Paragraph("Metric", pipe_hdr_sty), Paragraph("Value", pipe_hdr_sty)],
+            ["Audio files", f"{n_audio_prof:,}",
+             "Classes / labels", f"{prof.get('n_classes','?')}  (imbalance {prof.get('imbalance_ratio',1):.1f}x)"],
+            ["Total duration", f"{prof.get('total_duration_sec',0):.2f}s",
+             "Avg duration", f"{prof.get('avg_duration_sec',0):.2f}s"],
+            ["Duration range", f"{prof.get('min_duration_sec',0):.2f}s to {prof.get('max_duration_sec',0):.2f}s",
+             "Duration std", f"{prof.get('duration_std_sec',0):.2f}s"],
+            ["Sample rates", str(sr_dist),
+             "Channels", str(ch_dist)],
+            ["Bit depth", str(bit_dist),
+             "Formats", str(fmt_dist)],
+            ["Corrupt files", str(prof.get("n_corrupt", 0)),
+             "Silent files", str(prof.get("n_silent", 0))],
+            ["Clipped files", str(prof.get("n_clipped", 0)),
+             "Missing / invalid labels", str(prof.get("missing_invalid_labels", 0))],
+            ["Avg RMS energy", f"{prof.get('avg_rms',0):.6f}",
+             "Noise proxy", f"{prof.get('estimated_noise_ratio',0):.4f}"],
+            ["Transcript files", str(prof.get("transcript_count", 0)),
+             "Speaker labels", str(prof.get("speaker_label_count", 0))],
+        ]
+        hw = available_w / 4
+        audio_prof_extra = [("ALIGN", (1, 1), (1, -1), "RIGHT"), ("ALIGN", (3, 1), (3, -1), "RIGHT")]
+        story.append(_tbl(audio_prof_rows, [hw*1.15, hw*0.85, hw*1.15, hw*0.85], extra=audio_prof_extra))
+        story.append(Spacer(1, 0.5 * cm))
+        if chart_class_dist:
+            story.append(_fw_image(chart_class_dist, available_w))
+            story.append(Spacer(1, 0.4 * cm))
+        if chart_duration:
+            story.append(_fw_image(chart_duration, available_w))
+            story.append(Spacer(1, 0.4 * cm))
+        if chart_quality:
+            story.append(_fw_image(chart_quality, available_w))
             story.append(Spacer(1, 0.3 * cm))
     else:
         num_c = prof.get("num_cols_count", 0)
