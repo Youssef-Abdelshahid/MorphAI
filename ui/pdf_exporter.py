@@ -26,6 +26,10 @@ from src.audio.config import (
     metric_label as audio_metric_label,
     valid_metrics_for_task as audio_valid_metrics_for_task,
 )
+from src.text.config import (
+    metric_label as text_metric_label,
+    valid_metrics_for_task as text_valid_metrics_for_task,
+)
 from src.tabular.config import (
     metric_label as tabular_metric_label,
     valid_metrics_for_task as tabular_valid_metrics_for_task,
@@ -86,6 +90,9 @@ MARGIN = 1.8 * cm
 
 
 def metric_label(metric: str) -> str:
+    text_label = text_metric_label(metric)
+    if text_label != metric.replace("_", " ").title():
+        return text_label
     audio_label = audio_metric_label(metric)
     if audio_label != metric.replace("_", " ").title():
         return audio_label
@@ -523,6 +530,76 @@ def _chart_audio_quality_flags(prof: dict) -> Optional[str]:
 
 # ── Document ──────────────────────────────────────────────────────────────────
 
+def _chart_text_label_distribution(prof: dict) -> Optional[str]:
+    label_counts = prof.get("label_distribution", {})
+    if not label_counts:
+        return None
+    _set_rcparams()
+    labels = sorted(label_counts.keys())
+    values = [label_counts[label] for label in labels]
+    max_v = max(values)
+    colors_ = [_M_GREEN if value == max_v else _M_BLUE for value in values]
+    fig, ax = plt.subplots(figsize=(8.5, max(2.5, len(labels) * 0.45 + 1.0)))
+    bars = ax.barh(range(len(labels)), values, color=colors_, height=0.42)
+    ax.set_yticks(range(len(labels)))
+    ax.set_yticklabels(labels, fontsize=10)
+    ax.invert_yaxis()
+    ax.set_xlabel("Samples", fontsize=13, labelpad=8)
+    ax.set_title("Text Label Distribution", fontsize=15, fontweight="bold", pad=14)
+    _style_ax(ax, grid="x")
+    try:
+        ax.bar_label(bars, labels=[str(v) for v in values], padding=4, fontsize=9)
+    except Exception:
+        pass
+    ax.margins(x=0.16)
+    fig.tight_layout()
+    return _save_fig(fig)
+
+
+def _chart_text_length_distribution(prof: dict) -> Optional[str]:
+    counts = prof.get("text_length_distribution", {})
+    if not counts:
+        return None
+    _set_rcparams()
+    order = ["empty", "<10 words", "10-99 words", "100-499 words", "500+ words"]
+    labels = [label for label in order if label in counts]
+    labels += [label for label in counts if label not in labels]
+    values = [counts[label] for label in labels]
+    fig, ax = plt.subplots(figsize=(8.5, 3.2))
+    bars = ax.bar(labels, values, color=_M_CYAN, width=0.5)
+    ax.set_ylabel("Samples", fontsize=13, labelpad=8)
+    ax.set_title("Text Length Distribution", fontsize=15, fontweight="bold", pad=14)
+    _style_ax(ax, grid="y")
+    try:
+        ax.bar_label(bars, labels=[str(v) for v in values], padding=4, fontsize=9)
+    except Exception:
+        pass
+    fig.tight_layout()
+    return _save_fig(fig)
+
+
+def _chart_text_noise_indicators(prof: dict) -> Optional[str]:
+    noise = prof.get("noise_counts", {})
+    if not noise or not any(noise.values()):
+        return None
+    _set_rcparams()
+    labels = list(noise.keys())
+    values = [noise[k] for k in labels]
+    fig, ax = plt.subplots(figsize=(8.5, 3.2))
+    bars = ax.barh(labels, values, color=_M_ORANGE, height=0.42)
+    ax.invert_yaxis()
+    ax.set_xlabel("Samples", fontsize=13, labelpad=8)
+    ax.set_title("Text Noise Indicators", fontsize=15, fontweight="bold", pad=14)
+    _style_ax(ax, grid="x")
+    try:
+        ax.bar_label(bars, labels=[str(v) for v in values], padding=4, fontsize=9)
+    except Exception:
+        pass
+    ax.margins(x=0.16)
+    fig.tight_layout()
+    return _save_fig(fig)
+
+
 def _readable_pipeline(name: str) -> str:
     """Convert 'num=median | cat=mode | scale=robust | ...' to human-readable form."""
     label_map = {
@@ -579,7 +656,8 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
     lrn     = report.get("learning_summary", {})
     is_image = report.get("modality") == "Image"
     is_audio = report.get("modality") == "Audio"
-    valid_metrics_fn = audio_valid_metrics_for_task if is_audio else image_valid_metrics_for_task if is_image else tabular_valid_metrics_for_task
+    is_text = report.get("modality") == "Text"
+    valid_metrics_fn = text_valid_metrics_for_task if is_text else audio_valid_metrics_for_task if is_audio else image_valid_metrics_for_task if is_image else tabular_valid_metrics_for_task
     metric_names = valid_metrics_fn(tc.get("task_type", "")) or list(m.keys())
     has_normalized_score = ("normalized_score" in best) or ("final_score" in best)
 
@@ -597,6 +675,7 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
     best_name     = best.get("name", "—")
     n_images_prof = prof.get("n_images", 0)
     n_audio_prof = prof.get("n_audio_files", 0)
+    n_text_prof = prof.get("n_samples", 0)
     n_classes_prof = prof.get("n_classes", 0)
     total_duration_prof = prof.get("total_duration_sec", 0)
     # ── Document ──────────────────────────────────────────────────────────
@@ -668,6 +747,13 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
             meta_items = [
                 ("Dataset",         ds_name),
                 ("Modality",        "Audio"),
+                ("Priority metric", metric_label(metric)),
+                ("Generated",       ts_fmt),
+            ]
+        elif is_text:
+            meta_items = [
+                ("Dataset",         ds_name),
+                ("Modality",        "Text"),
                 ("Priority metric", metric_label(metric)),
                 ("Generated",       ts_fmt),
             ]
@@ -866,6 +952,13 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
         chart_duration   = _chart_audio_duration_distribution(prof)
         chart_profile    = None
         chart_comp       = None
+    elif is_text:
+        chart_class_dist = _chart_text_label_distribution(prof)
+        chart_quality    = _chart_text_noise_indicators(prof)
+        chart_dims       = None
+        chart_duration   = _chart_text_length_distribution(prof)
+        chart_profile    = None
+        chart_comp       = None
     else:
         chart_class_dist = None
         chart_quality    = None
@@ -891,6 +984,9 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
     if is_audio:
         dataset_kpi_value = f"{n_audio_prof:,} audio files"
         dataset_kpi_subtitle = f"{total_duration_prof:.1f}s total"
+    elif is_text:
+        dataset_kpi_value = f"{n_text_prof:,} samples"
+        dataset_kpi_subtitle = f"{prof.get('vocabulary_size_estimate', 0):,} vocab"
     elif is_image:
         dataset_kpi_value = f"{n_images_prof:,} images"
         dataset_kpi_subtitle = f"{n_classes_prof} classes"
@@ -947,6 +1043,15 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
         "dur":    "Duration Handling",
         "noise":  "Noise Filter",
         "aug":    "Audio Augmentation",
+        "case":   "Case Handling",
+        "clean":  "Text Cleaning",
+        "tok":    "Tokenization",
+        "repr":   "Text Representation",
+        "maxlen": "Max Sequence Length",
+        "min_df": "Vocabulary Min Frequency",
+        "punct":  "Punctuation Handling",
+        "num":    "Number Handling",
+        "emoji":  "Emoji Handling",
     }
     if is_audio:
         _step_lm["clip"] = "Clipping Handling"
@@ -993,6 +1098,8 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
         ov_rows.append(["Modality", "Image"])
     elif is_audio:
         ov_rows.append(["Modality", "Audio"])
+    elif is_text:
+        ov_rows.append(["Modality", "Text"])
     else:
         ov_rows.append(["Target column", cfg.get("target", "—")])
     ov_rows += [
@@ -1096,6 +1203,42 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
         hw = available_w / 4
         audio_prof_extra = [("ALIGN", (1, 1), (1, -1), "RIGHT"), ("ALIGN", (3, 1), (3, -1), "RIGHT")]
         story.append(_tbl(audio_prof_rows, [hw*1.15, hw*0.85, hw*1.15, hw*0.85], extra=audio_prof_extra))
+        story.append(Spacer(1, 0.5 * cm))
+        if chart_class_dist:
+            story.append(_fw_image(chart_class_dist, available_w))
+            story.append(Spacer(1, 0.4 * cm))
+        if chart_duration:
+            story.append(_fw_image(chart_duration, available_w))
+            story.append(Spacer(1, 0.4 * cm))
+        if chart_quality:
+            story.append(_fw_image(chart_quality, available_w))
+            story.append(Spacer(1, 0.3 * cm))
+    elif is_text:
+        text_prof_rows = [
+            [Paragraph("Metric", pipe_hdr_sty), Paragraph("Value", pipe_hdr_sty),
+             Paragraph("Metric", pipe_hdr_sty), Paragraph("Value", pipe_hdr_sty)],
+            ["Samples", f"{n_text_prof:,}",
+             "Classes / labels", f"{prof.get('n_classes','?')}  (imbalance {prof.get('imbalance_ratio',1):.1f}x)"],
+            ["Text columns", ", ".join(prof.get("primary_text_columns", [])),
+             "Target columns", ", ".join(prof.get("target_columns", []))],
+            ["Empty texts", str(prof.get("n_empty_texts", 0)),
+             "Duplicate texts", str(prof.get("duplicate_text_count", 0))],
+            ["Avg chars", f"{prof.get('avg_char_length',0):.1f}",
+             "Avg tokens", f"{prof.get('avg_token_length',0):.1f}"],
+            ["Length range", f"{prof.get('min_char_length',0)} to {prof.get('max_char_length',0)} chars",
+             "Length std", f"{prof.get('token_length_std',0):.1f} tokens"],
+            ["Vocabulary", f"{prof.get('vocabulary_size_estimate',0):,}",
+             "Unique token ratio", f"{prof.get('unique_token_ratio',0):.3f}"],
+            ["Languages", str(prof.get("language_distribution", {})),
+             "Missing targets", str(prof.get("missing_target_count", 0))],
+            ["Noise indicators", str(prof.get("noise_counts", {})),
+             "Noise ratio", f"{prof.get('noise_ratio',0):.2%}"],
+            ["Annotation validation", str(prof.get("annotation_validity", {})),
+             "Source/target length ratio", f"{prof.get('source_target_length_ratio',0):.3f}"],
+        ]
+        hw = available_w / 4
+        text_prof_extra = [("ALIGN", (1, 1), (1, -1), "RIGHT"), ("ALIGN", (3, 1), (3, -1), "RIGHT")]
+        story.append(_tbl(text_prof_rows, [hw*1.15, hw*0.85, hw*1.15, hw*0.85], extra=text_prof_extra))
         story.append(Spacer(1, 0.5 * cm))
         if chart_class_dist:
             story.append(_fw_image(chart_class_dist, available_w))

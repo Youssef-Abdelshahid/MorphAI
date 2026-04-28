@@ -17,6 +17,10 @@ from src.audio.config import (
     metric_label as audio_metric_label,
     valid_metrics_for_task as audio_valid_metrics_for_task,
 )
+from src.text.config import (
+    metric_label as text_metric_label,
+    valid_metrics_for_task as text_valid_metrics_for_task,
+)
 from src.tabular.config import (
     metric_label as tabular_metric_label,
     valid_metrics_for_task as tabular_valid_metrics_for_task,
@@ -91,8 +95,9 @@ class ReportViewMixin:
         P        = 22   # padx for all sections
         is_image = report.get("modality") == "Image" or "n_images" in prof
         is_audio = report.get("modality") == "Audio" or "n_audio_files" in prof
-        metric_label_fn = audio_metric_label if is_audio else image_metric_label if is_image else tabular_metric_label
-        valid_metrics_fn = audio_valid_metrics_for_task if is_audio else image_valid_metrics_for_task if is_image else tabular_valid_metrics_for_task
+        is_text = report.get("modality") == "Text" or "n_samples" in prof and "vocabulary_size_estimate" in prof
+        metric_label_fn = text_metric_label if is_text else audio_metric_label if is_audio else image_metric_label if is_image else tabular_metric_label
+        valid_metrics_fn = text_valid_metrics_for_task if is_text else audio_valid_metrics_for_task if is_audio else image_valid_metrics_for_task if is_image else tabular_valid_metrics_for_task
         metric_names = valid_metrics_fn(task_type) or list(best.get("metrics", {}).keys())
         has_normalized_score = "final_score" in best
 
@@ -167,6 +172,8 @@ class ReportViewMixin:
                         _chart_image_dimensions,
                         _chart_audio_label_distribution, _chart_audio_duration_distribution,
                         _chart_audio_quality_flags,
+                        _chart_text_label_distribution, _chart_text_length_distribution,
+                        _chart_text_noise_indicators,
                         _chart_metrics_overview, _chart_per_model,
                         _chart_pipeline_rankings,
                     )
@@ -206,6 +213,15 @@ class ReportViewMixin:
 
                         c3a = _lc(_chart_audio_quality_flags, prof)
                         self.after(0, lambda: _inject_chart("_c_qual", c3a))
+                    elif is_text:
+                        c1 = _lc(_chart_text_label_distribution, prof)
+                        self.after(0, lambda: _inject_chart("_c_comp", c1))
+
+                        c2 = _lc(_chart_text_length_distribution, prof)
+                        self.after(0, lambda: _inject_chart("_c_len", c2))
+
+                        c3t = _lc(_chart_text_noise_indicators, prof)
+                        self.after(0, lambda: _inject_chart("_c_qual", c3t))
                     else:
                         c1 = _lc(_chart_dataset_composition, prof)
                         self.after(0, lambda: _inject_chart("_c_comp", c1))
@@ -257,7 +273,7 @@ class ReportViewMixin:
         c.pack(fill="x", padx=P, pady=(0, 4))
         kv_row(c, "Run timestamp",     ts_fmt)
         kv_row(c, "Dataset",           cfg.get("data_path", "—"))
-        if cfg.get("target") and not (is_image or is_audio):
+        if cfg.get("target") and not (is_image or is_audio or is_text):
             kv_row(c, "Target column",     cfg.get("target", "—"))
         kv_row(c, "Priority metric",   metric_label_fn(metric))
         if report.get("modality"):
@@ -335,6 +351,21 @@ class ReportViewMixin:
             kv_row(c, "Corrupt / silent / clipped", f"{prof.get('n_corrupt', 0)} / {prof.get('n_silent', 0)} / {prof.get('n_clipped', 0)}")
             kv_row(c, "RMS / noise proxy", f"{prof.get('avg_rms', 0):.6f} / {prof.get('estimated_noise_ratio', 0):.4f}")
             kv_row(c, "Transcripts / speaker labels", f"{prof.get('transcript_count', 0)} / {prof.get('speaker_label_count', 0)}")
+        elif is_text:
+            kv_row(c, "Samples", f"{prof.get('n_samples', '?'):,}")
+            kv_row(c, "Text columns", ", ".join(prof.get("primary_text_columns", [])))
+            kv_row(c, "Target / annotation columns", ", ".join(prof.get("target_columns", [])))
+            kv_row(c, "Empty / duplicate texts", f"{prof.get('n_empty_texts', 0)} / {prof.get('duplicate_text_count', 0)}")
+            kv_row(c, "Avg chars / tokens", f"{prof.get('avg_char_length', 0):.1f} / {prof.get('avg_token_length', 0):.1f}")
+            kv_row(c, "Length range", f"{prof.get('min_char_length', 0)} to {prof.get('max_char_length', 0)} chars")
+            kv_row(c, "Length distribution", str(prof.get("text_length_distribution", {})))
+            kv_row(c, "Vocabulary / unique token ratio", f"{prof.get('vocabulary_size_estimate', 0):,} / {prof.get('unique_token_ratio', 0):.3f}")
+            kv_row(c, "Language distribution", str(prof.get("language_distribution", {})))
+            kv_row(c, "Label distribution", str(prof.get("label_distribution", {})))
+            kv_row(c, "Missing targets", str(prof.get("missing_target_count", 0)))
+            kv_row(c, "Noise summary", str(prof.get("noise_counts", {})))
+            kv_row(c, "Annotation validation", str(prof.get("annotation_validity", {})))
+            kv_row(c, "Source/target length ratio", f"{prof.get('source_target_length_ratio', 0):.3f}")
         else:
             kv_row(c, "Rows",
                    f"{prof.get('n_rows', '?'):,}")
@@ -368,7 +399,11 @@ class ReportViewMixin:
             _add_chart("_c_comp", "Audio label distribution")
             _add_chart("_c_dur", "Duration distribution")
             _add_chart("_c_qual", "Audio quality indicators")
-        elif not is_audio:
+        elif is_text:
+            _add_chart("_c_comp", "Text label distribution")
+            _add_chart("_c_len", "Text length distribution")
+            _add_chart("_c_qual", "Text noise indicators")
+        elif not (is_audio or is_text):
             _add_chart("_c_comp", "Feature composition")
             _add_chart("_c_qual", "Dataset quality indicators")
 

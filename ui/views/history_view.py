@@ -14,6 +14,10 @@ from src.audio.config import (
     metric_label as audio_metric_label,
     valid_metrics_for_task as audio_valid_metrics_for_task,
 )
+from src.text.config import (
+    metric_label as text_metric_label,
+    valid_metrics_for_task as text_valid_metrics_for_task,
+)
 from src.tabular.config import (
     metric_label as tabular_metric_label,
     valid_metrics_for_task as tabular_valid_metrics_for_task,
@@ -103,7 +107,8 @@ class HistoryViewMixin:
             cfg = report.get("config", {})
             is_image = report.get("modality") == "Image"
             is_audio = report.get("modality") == "Audio"
-            metric_label_fn = audio_metric_label if is_audio else image_metric_label if is_image else tabular_metric_label
+            is_text = report.get("modality") == "Text"
+            metric_label_fn = text_metric_label if is_text else audio_metric_label if is_audio else image_metric_label if is_image else tabular_metric_label
             ts_raw = report.get("timestamp", "")
             try:
                 ts_fmt = datetime.fromisoformat(ts_raw).strftime("%Y-%m-%d  %H:%M")
@@ -133,8 +138,9 @@ class HistoryViewMixin:
         cfg = report.get("config", {})
         is_image = report.get("modality") == "Image"
         is_audio = report.get("modality") == "Audio"
-        metric_label_fn = audio_metric_label if is_audio else image_metric_label if is_image else tabular_metric_label
-        valid_metrics_fn = audio_valid_metrics_for_task if is_audio else image_valid_metrics_for_task if is_image else tabular_valid_metrics_for_task
+        is_text = report.get("modality") == "Text"
+        metric_label_fn = text_metric_label if is_text else audio_metric_label if is_audio else image_metric_label if is_image else tabular_metric_label
+        valid_metrics_fn = text_valid_metrics_for_task if is_text else audio_valid_metrics_for_task if is_audio else image_valid_metrics_for_task if is_image else tabular_valid_metrics_for_task
         metric = best.get("selected_metric", cfg.get("metric", "f1"))
         m = best.get("raw_metrics", best.get("metrics", {}))
         task_type = report.get("task_context", {}).get("task_type", "")
@@ -167,7 +173,7 @@ class HistoryViewMixin:
 
         kv("Timestamp", ts_fmt)
         kv("Dataset", Path(cfg.get("data_path", "—")).name)
-        if report.get("modality") in {"Image", "Audio"}:
+        if report.get("modality") in {"Image", "Audio", "Text"}:
             kv("Modality", report.get("modality"))
         else:
             kv("Target", cfg.get("target", "—"))
@@ -204,11 +210,18 @@ class HistoryViewMixin:
         ds_stem = Path(cfg.get("data_path", "")).stem
         is_image_run = report.get("modality") == "Image"
         is_audio_run = report.get("modality") == "Audio"
+        is_text_run = report.get("modality") == "Text"
         artifact_files: List[Path] = []
         if proc_dir.exists() and ds_stem:
             if is_image_run or is_audio_run:
                 artifact_files = sorted(
                     proc_dir.glob(f"{ds_stem}_*_processed.zip"),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True,
+                )
+            elif is_text_run:
+                artifact_files = sorted(
+                    list(proc_dir.glob(f"{ds_stem}_*_cleaned.csv")) + list(proc_dir.glob(f"{ds_stem}_*_cleaned.xlsx")),
                     key=lambda p: p.stat().st_mtime,
                     reverse=True,
                 )
@@ -219,7 +232,7 @@ class HistoryViewMixin:
                     reverse=True,
                 )
         if artifact_files:
-            btn_text = "Open Processed ZIP" if (is_image_run or is_audio_run) else "Open Cleaned CSV"
+            btn_text = "Open Processed ZIP" if (is_image_run or is_audio_run) else "Open Cleaned Dataset" if is_text_run else "Open Cleaned CSV"
             ctk.CTkButton(
                 btn_row, text=btn_text, width=150, height=32,
                 fg_color=BG_INPUT, hover_color=BORDER,
@@ -256,6 +269,16 @@ class HistoryViewMixin:
                     ("Sample rates", str(prof.get("sample_rate_distribution", {}))),
                     ("Quality", f"corrupt={prof.get('n_corrupt', 0)}, silent={prof.get('n_silent', 0)}, clipped={prof.get('n_clipped', 0)}"),
                     ("Noise proxy", f"{prof.get('estimated_noise_ratio', 0):.4f}"),
+                ]:
+                    kv(k, v)
+            elif report.get("modality") == "Text":
+                for k, v in [
+                    ("Samples", f"{prof.get('n_samples', 0):,}"),
+                    ("Text columns", ", ".join(prof.get("primary_text_columns", []))),
+                    ("Avg tokens", f"{prof.get('avg_token_length', 0):.1f}"),
+                    ("Vocabulary", f"{prof.get('vocabulary_size_estimate', 0):,}"),
+                    ("Quality", f"empty={prof.get('n_empty_texts', 0)}, duplicate={prof.get('duplicate_text_count', 0)}, noise={prof.get('noise_ratio', 0):.2%}"),
+                    ("Labels", f"{prof.get('n_classes','?')}  (imbalance {prof.get('imbalance_ratio',1):.1f}x)"),
                 ]:
                     kv(k, v)
             else:

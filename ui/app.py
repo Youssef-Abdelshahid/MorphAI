@@ -54,6 +54,7 @@ from ui.constants import (
 from ui.helpers import _open_file, _hsep
 from ui.worker import AgentWorker, ImageAgentWorker
 from ui.audio_worker import AudioAgentWorker
+from ui.text_worker import TextAgentWorker
 from src.tabular.config import default_metric_for_task
 from ui.views.run_view import RunViewMixin
 from ui.views.report_view import ReportViewMixin
@@ -255,14 +256,14 @@ class App(
         _filetypes_map = {
             "CSV / Tabular":   [("CSV files", "*.csv"), ("All files", "*.*")],
             "Audio":           [("Zip archives", "*.zip"), ("All files", "*.*")],
-            "Text":            [("Text files", "*.txt *.csv *.json *.jsonl"), ("All files", "*.*")],
+            "Text":            [("Structured text datasets", "*.csv *.xlsx *.xls"), ("CSV files", "*.csv"), ("Excel files", "*.xlsx *.xls"), ("All files", "*.*")],
             "Semi-structured": [("Structured files", "*.json *.xml *.yaml *.yml *.log"), ("All files", "*.*")],
             "Unstructured":    [("All files", "*.*")],
         }
         _titles_map = {
             "CSV / Tabular":   "Select CSV dataset",
             "Audio":           "Select audio dataset zip archive",
-            "Text":            "Select text dataset",
+            "Text":            "Select structured text CSV or Excel dataset",
             "Semi-structured": "Select semi-structured dataset",
             "Unstructured":    "Select dataset",
         }
@@ -355,6 +356,38 @@ class App(
             self._file_lbl.configure(text="No file selected", text_color=TXT_MUTED)
             return
 
+        if modality == "Text":
+            ctx = self._get_context_fields()
+            from src.text.config import _TXT_TASK_BACKEND, default_metric_for_task as text_default_metric_for_task
+            raw_task = ctx.get("task_type", "")
+            backend_task = _TXT_TASK_BACKEND.get(raw_task, "")
+            text_metric = ctx.get("metric", "") or text_default_metric_for_task(backend_task)
+            if not backend_task:
+                self._clog("Please select a supported text task type.", "ERROR")
+                self._switch_view("console")
+                return
+            self._cleaned_path = None
+            self._report_data = None
+            self._results_frame.pack_forget()
+            self._step_lbl.configure(text="")
+            self._set_status("Running", WARN)
+            worker = TextAgentWorker(
+                self._q, self._csv_path, text_metric,
+                task_type=backend_task,
+                domain=ctx.get("domain", ""),
+                constraints=ctx.get("constraints", ""),
+                notes=ctx.get("notes", ""),
+                language=ctx.get("language", ""),
+                text_source=ctx.get("text_source", ""),
+                text_length=ctx.get("text_length", ""),
+            )
+            self._thread = threading.Thread(target=worker.run, daemon=True)
+            self._thread.start()
+            self._clear_context_fields()
+            self._csv_path = None
+            self._file_lbl.configure(text="No file selected", text_color=TXT_MUTED)
+            return
+
         if modality not in ("CSV / Tabular", "Image"):
             ctx = self._get_context_fields()
             self._clog(f"[{modality}]  Run context captured.", "INFO")
@@ -412,6 +445,8 @@ class App(
             self._show_image_run_results(msg)
         elif msg.get("modality") == "Audio":
             self._show_audio_run_results(msg)
+        elif msg.get("modality") == "Text":
+            self._show_text_run_results(msg)
         else:
             self._show_run_results(msg)
         self._render_report(msg["report"])

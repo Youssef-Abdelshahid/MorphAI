@@ -13,6 +13,12 @@ from src.audio.config import (
     metric_label as audio_metric_label,
     valid_metrics_for_task as audio_valid_metrics_for_task,
 )
+from src.text.config import (
+    _TXT_TASK_BACKEND as _TXT_TASK_BACKEND_CFG,
+    default_metric_for_task as text_default_metric_for_task,
+    metric_label as text_metric_label,
+    valid_metrics_for_task as text_valid_metrics_for_task,
+)
 
 from ui.constants import (
     BG_WIN, BG_BAR, BG_INPUT,
@@ -212,11 +218,9 @@ _AUD_DOMAIN_OPTS = [
 _TXT_TASK_OPTS = [
     "Text classification (single-label)",
     "Text classification (multi-label)",
-    "Sentiment analysis",
     "Named entity recognition",
     "Part-of-speech tagging",
     "Relation extraction",
-    "Intent detection",
     "Semantic similarity / search",
     "Text summarization",
     "Machine translation",
@@ -225,6 +229,8 @@ _TXT_TASK_OPTS = [
     "Topic modeling",
     "Language detection",
 ]
+
+_TXT_TASK_BACKEND = dict(_TXT_TASK_BACKEND_CFG)
 
 _TXT_LANG_OPTS = [
     _SENTINEL,
@@ -745,9 +751,30 @@ class RunViewMixin:
             self._modality_context_vars["domain"] = domain_var
 
         elif modality == "Text":
+            def _on_text_task_change(task: str) -> None:
+                backend_task = _TXT_TASK_BACKEND.get(task, "classification_single")
+                metric_menu = getattr(self, "_text_metric_menu", None)
+                metric_var = self._modality_context_vars.get("metric")
+                values = text_valid_metrics_for_task(backend_task)
+                if metric_menu is not None and metric_var is not None and values:
+                    metric_menu.configure(values=values)
+                    metric_var.set(text_default_metric_for_task(backend_task))
+
             task_var = ctk.StringVar(value=_TXT_TASK_OPTS[0])
-            _ctx_row(ctx_card, "Task type", task_var, _TXT_TASK_OPTS, width=280)
+            _ctx_row(ctx_card, "Task type", task_var, _TXT_TASK_OPTS, width=280, command=_on_text_task_change)
             self._modality_context_vars["task_type"] = task_var
+
+            initial_task = _TXT_TASK_BACKEND.get(task_var.get(), "classification_single")
+            metric_values = text_valid_metrics_for_task(initial_task)
+            metric_var = ctk.StringVar(value=text_default_metric_for_task(initial_task))
+            _ctx_row(ctx_card, "Priority metric", metric_var, metric_values, width=220)
+            self._modality_context_vars["metric"] = metric_var
+            self._text_metric_menu = self._modality_menus[-1]
+
+            ctk.CTkLabel(ctx_card,
+                         text="Upload a structured CSV or Excel text dataset with one sample per row. Required columns depend on the selected task, such as text+label for classification or source_text+summary for summarization.",
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT_MUTED,
+                         wraplength=780, justify="left").pack(anchor="w", padx=154, pady=(0, 6))
 
             lang_var = ctk.StringVar(value=_SENTINEL)
             _ctx_row(ctx_card, "Language", lang_var, _TXT_LANG_OPTS, width=200)
@@ -1099,6 +1126,73 @@ class RunViewMixin:
         ctk.CTkButton(act, text="View Report", width=130, height=34, fg_color=ACCENT, hover_color=ACCENT_H, corner_radius=8, font=ctk.CTkFont(family=FONT_FAMILY, size=13), command=lambda: self._switch_view("report")).pack(side="left", padx=(0, 8))
         ctk.CTkButton(act, text="Export PDF", width=110, height=34, fg_color=BG_INPUT, hover_color=BORDER, border_width=1, border_color=BORDER, text_color=TXT, corner_radius=8, font=ctk.CTkFont(family=FONT_FAMILY, size=13), command=self._on_export_pdf).pack(side="left", padx=(0, 8))
         ctk.CTkButton(act, text="Open Processed ZIP", width=150, height=34, fg_color=BG_INPUT, hover_color=BORDER, border_width=1, border_color=BORDER, text_color=TXT, corner_radius=8, font=ctk.CTkFont(family=FONT_FAMILY, size=13), command=self._open_cleaned).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(act, text="Console", width=90, height=34, fg_color=BG_INPUT, hover_color=BORDER, border_width=1, border_color=BORDER, text_color=TXT, corner_radius=8, font=ctk.CTkFont(family=FONT_FAMILY, size=13), command=lambda: self._switch_view("console")).pack(side="left")
+        rf.pack(fill="x")
+
+    def _show_text_run_results(self, msg: dict) -> None:
+        rf = self._results_frame
+        for w in rf.winfo_children():
+            w.destroy()
+
+        _hsep(rf, pady=(16, 4))
+        _sec_label(rf, "RUN RESULTS", padx=20, pady=(8, 8))
+
+        cards_row = ctk.CTkFrame(rf, fg_color="transparent")
+        cards_row.pack(fill="x", padx=20)
+
+        c1 = _card(cards_row)
+        c1.pack(side="left", fill="both", expand=True, padx=(0, 6))
+        _sec_label(c1, "DATASET", padx=14, pady=(10, 4))
+        ctk.CTkLabel(c1, text=f"{msg['n_samples']:,} samples",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=22, weight="bold"),
+                     text_color=TXT).pack(anchor="w", padx=14)
+        ctk.CTkLabel(c1, text=f"{msg.get('n_classes', 0)} labels  /  vocab {msg.get('vocabulary_size_estimate', 0):,}",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=13), text_color=TXT_MUTED).pack(anchor="w", padx=14)
+        ctk.CTkLabel(c1, text=f"avg {msg.get('avg_token_length', 0):.1f} tokens",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT_MUTED).pack(anchor="w", padx=14)
+        ctk.CTkLabel(c1, text=msg.get("quality_info", ""),
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT_MUTED).pack(anchor="w", padx=14, pady=(0, 12))
+
+        c2 = _card(cards_row)
+        c2.pack(side="left", fill="both", expand=True, padx=6)
+        _sec_label(c2, "BEST PIPELINE", padx=14, pady=(10, 4))
+        for part in msg["best_name"].split(" | "):
+            ctk.CTkLabel(c2, text=part,
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT,
+                         anchor="w").pack(anchor="w", padx=14)
+        ctk.CTkLabel(c2, text=f"{msg['n_pipelines']} candidates tested",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT_MUTED).pack(anchor="w", padx=14, pady=(6, 12))
+
+        c3 = _card(cards_row)
+        c3.pack(side="left", fill="both", expand=True, padx=(6, 0))
+        _sec_label(c3, "METRICS", padx=14, pady=(10, 4))
+        pmetric = msg["metric"]
+        m = msg.get("raw_metrics", msg["metrics"])
+        task_type = msg.get("task_context", {}).get("task_type", "")
+        metric_names = text_valid_metrics_for_task(task_type) or list(m.keys())
+        for mk in metric_names:
+            if mk not in m:
+                continue
+            is_p = (mk == pmetric)
+            mr = ctk.CTkFrame(c3, fg_color="transparent")
+            mr.pack(fill="x", padx=14, pady=1)
+            ctk.CTkLabel(mr, text=text_metric_label(mk),
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold" if is_p else "normal"),
+                         text_color=ACCENT if is_p else TXT_MUTED, width=150, anchor="w").pack(side="left")
+            ctk.CTkLabel(mr, text=f"{m[mk]:.4f}",
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold" if is_p else "normal"),
+                         text_color=TXT if is_p else TXT_MUTED).pack(side="left")
+        ctk.CTkLabel(c3, text=f"Normalized score {msg['best_score']:.4f}",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=TXT_MUTED).pack(anchor="w", padx=14, pady=(4, 0))
+        if msg.get("evaluation_mode"):
+            ctk.CTkLabel(c3, text=f"Evaluation mode: {msg['evaluation_mode']}",
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=TXT_MUTED).pack(anchor="w", padx=14, pady=(2, 12))
+
+        act = ctk.CTkFrame(rf, fg_color="transparent")
+        act.pack(fill="x", padx=20, pady=(10, 20))
+        ctk.CTkButton(act, text="View Report", width=130, height=34, fg_color=ACCENT, hover_color=ACCENT_H, corner_radius=8, font=ctk.CTkFont(family=FONT_FAMILY, size=13), command=lambda: self._switch_view("report")).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(act, text="Export PDF", width=110, height=34, fg_color=BG_INPUT, hover_color=BORDER, border_width=1, border_color=BORDER, text_color=TXT, corner_radius=8, font=ctk.CTkFont(family=FONT_FAMILY, size=13), command=self._on_export_pdf).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(act, text="Open Cleaned Dataset", width=170, height=34, fg_color=BG_INPUT, hover_color=BORDER, border_width=1, border_color=BORDER, text_color=TXT, corner_radius=8, font=ctk.CTkFont(family=FONT_FAMILY, size=13), command=self._open_cleaned).pack(side="left", padx=(0, 8))
         ctk.CTkButton(act, text="Console", width=90, height=34, fg_color=BG_INPUT, hover_color=BORDER, border_width=1, border_color=BORDER, text_color=TXT, corner_radius=8, font=ctk.CTkFont(family=FONT_FAMILY, size=13), command=lambda: self._switch_view("console")).pack(side="left")
         rf.pack(fill="x")
 
