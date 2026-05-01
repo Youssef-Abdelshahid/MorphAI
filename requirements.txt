@@ -1,4 +1,3 @@
-# CLI:  python -m src.main --data data/your_dataset.csv --target col --metric f1
 # UI:   python start_ui.py
 
 pandas>=1.5.0

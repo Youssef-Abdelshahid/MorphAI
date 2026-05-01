@@ -16,6 +16,10 @@ def _profile_to_dict(profile: TextProfile) -> dict:
     ir = profile.imbalance_ratio
     return {
         "n_samples": profile.n_samples,
+        "original_row_count": profile.original_row_count,
+        "removed_empty_or_invalid_count": profile.removed_empty_or_invalid_count,
+        "removed_non_english_count": profile.removed_non_english_count,
+        "final_row_count": profile.n_samples,
         "columns": profile.columns,
         "task_type": profile.task_type,
         "resolved_columns": profile.resolved_columns,
@@ -151,7 +155,20 @@ def generate_report(profile: TextProfile, results: List[Dict[str, Any]], best: D
             "elapsed_sec": best.get("elapsed_sec", 0.0),
         },
         "text_report_sections": {
-            "dataset_overview": {"samples": profile.n_samples, "text_columns": profile.primary_text_columns},
+            "english_only_support": "This run processed English-only text. Rows detected as non-English were removed before evaluation.",
+            "dataset_overview": {"samples": profile.n_samples, "text_columns": profile.primary_text_columns, "target_columns": profile.target_columns},
+            "row_filtering_summary": {
+                "original_row_count": profile.original_row_count,
+                "removed_empty_or_invalid": profile.removed_empty_or_invalid_count,
+                "removed_non_english": profile.removed_non_english_count,
+                "final_usable_rows": profile.n_samples,
+            },
+            "column_validation_result": {
+                "resolved_text_columns": profile.primary_text_columns,
+                "resolved_target_columns": profile.target_columns,
+                "all_resolved_columns": {k: v for k, v in profile.resolved_columns.items() if isinstance(v, str)},
+            },
+            "noisy_text_handling_summary": {"noise_counts": profile.noise_counts, "noise_ratios": profile.noise_ratios, "overall_noise_ratio": round(profile.noise_ratio, 4)},
             "text_length_statistics": profile.text_length_distribution,
             "vocabulary_noise_summary": {"vocabulary_size_estimate": profile.vocabulary_size_estimate, "unique_token_ratio": profile.unique_token_ratio, "noise_counts": profile.noise_counts},
             "missing_empty_duplicate_counts": {"empty_texts": profile.n_empty_texts, "duplicate_texts": profile.duplicate_text_count, "missing_targets": profile.missing_target_count},
@@ -181,15 +198,19 @@ def print_profile_summary(profile: TextProfile) -> None:
     ir = profile.imbalance_ratio
     ir_display = f"{ir:.1f}x" if math.isfinite(ir) else ">999x"
     print()
-    print("  Text Dataset Profile")
+    print("  Text Dataset Profile  [English-only]")
     print("  " + "-" * 48)
-    print(f"  Samples            : {profile.n_samples:,}")
+    if profile.original_row_count and profile.original_row_count != profile.n_samples:
+        print(f"  Original rows      : {profile.original_row_count:,}")
+        print(f"  Removed (invalid)  : {profile.removed_empty_or_invalid_count:,}")
+        print(f"  Removed (non-EN)   : {profile.removed_non_english_count:,}")
+    print(f"  Usable rows        : {profile.n_samples:,}")
     print(f"  Text columns       : {profile.primary_text_columns}")
+    print(f"  Target columns     : {profile.target_columns}")
     print(f"  Empty / duplicate  : {profile.n_empty_texts} / {profile.duplicate_text_count}")
     print(f"  Avg chars / tokens : {profile.avg_char_length:.1f} / {profile.avg_token_length:.1f}")
     print(f"  Length range       : {profile.min_char_length} to {profile.max_char_length} chars")
     print(f"  Vocabulary         : {profile.vocabulary_size_estimate:,}  (unique token ratio={profile.unique_token_ratio:.3f})")
-    print(f"  Languages          : {profile.language_distribution}")
     print(f"  Labels             : {profile.n_classes}  (imbalance ratio = {ir_display})")
     print(f"  Noise counts       : {profile.noise_counts}")
     print(f"  Annotation valid   : {profile.annotation_validity}")

@@ -69,7 +69,7 @@ def binary_label_columns(df: pd.DataFrame, exclude: Optional[List[str]] = None) 
     return cols
 
 
-def resolve_columns(df: pd.DataFrame, task_type: str) -> Dict[str, object]:
+def resolve_columns(df: pd.DataFrame, task_type: str, col_overrides: Optional[Dict[str, str]] = None) -> Dict[str, object]:
     task = (task_type or "").strip().lower()
     c = {}
     if task in {"classification_single", "topic_modeling"}:
@@ -118,4 +118,8 @@ def resolve_columns(df: pd.DataFrame, task_type: str) -> Dict[str, object]:
     elif task == "language_detection":
         c["text"] = find_column(df, _ALIASES["text"])
         c["language_label"] = find_column(df, _ALIASES["language_label"])
+    if col_overrides:
+        for key, col_name in col_overrides.items():
+            if col_name and col_name in df.columns:
+                c[key] = col_name
     return c

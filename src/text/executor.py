@@ -196,7 +196,7 @@ def _evaluate_single_label(spec, df, profile, task_type, metric_priority, text_c
 
 
 def _evaluate_classification_single(spec, df, profile, task_type, metric_priority):
-    cols = resolve_columns(df, task_type)
+    cols = profile.resolved_columns
     raw, std, per_model, n_classes, n_models = _evaluate_single_label(spec, df, profile, task_type, metric_priority, cols["text"], cols["label"])
     selected, note = _resolve_metric(task_type, metric_priority, raw.keys(), "macro_f1")
     summary = f"TF-IDF text classifiers evaluated {n_classes} class(es)."
@@ -206,7 +206,7 @@ def _evaluate_classification_single(spec, df, profile, task_type, metric_priorit
 
 
 def _evaluate_multilabel(spec, df, profile, task_type, metric_priority):
-    cols = resolve_columns(df, task_type)
+    cols = profile.resolved_columns
     texts = _preprocess_series(df[cols["text"]], spec)
     if cols.get("labels"):
         y_lists = [_parse_list(v) for v in df[cols["labels"]]]

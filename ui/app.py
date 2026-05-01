@@ -380,6 +380,7 @@ class App(
                 language=ctx.get("language", ""),
                 text_source=ctx.get("text_source", ""),
                 text_length=ctx.get("text_length", ""),
+                col_overrides=ctx.get("col_overrides") or {},
             )
             self._thread = threading.Thread(target=worker.run, daemon=True)
             self._thread.start()

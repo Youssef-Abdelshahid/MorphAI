@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Dict, Optional
 
 TEXT_CLASSIFICATION_METRICS = ["accuracy", "macro_f1", "weighted_f1", "precision", "recall"]
 TEXT_MULTILABEL_METRICS = ["micro_f1", "macro_f1", "hamming_loss", "subset_accuracy", "precision", "recall"]
@@ -148,6 +149,7 @@ class TextConfig:
     language: str = ""
     text_source: str = ""
     text_length: str = ""
+    col_overrides: Optional[Dict[str, str]] = None
 
     @property
     def supervision(self) -> str:

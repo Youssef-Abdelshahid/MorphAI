@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import re
 import string
+import unicodedata
 
 
 @dataclass
@@ -95,21 +96,48 @@ _STOPWORDS = {
     "its", "of", "on", "that", "the", "to", "was", "were", "will", "with", "this", "these", "those",
 }
 
+_EMOJI_RE = re.compile(
+    r"[\U0001F300-\U0001F9FF"
+    r"\U0001FA00-\U0001FA6F"
+    r"\U0001FA70-\U0001FAFF"
+    r"\U00002600-\U000027BF"
+    r"\U0000FE00-\U0000FEFF"
+    r"\U00010000-\U0010FFFF]",
+    re.UNICODE,
+)
+
+_NONBREAKING_SPACE_RE = re.compile(r"[  -   　]+")
+_ZEROWIDTH_RE = re.compile(r"[​-‏  ﻿­·]+")
+_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]+")
+_EXCESSIVE_PUNCT_RE = re.compile(r"([!?.,;:\-])\1{2,}")
+
+
+def _normalize_base(text: str) -> str:
+    text = unicodedata.normalize("NFC", text)
+    text = _ZEROWIDTH_RE.sub("", text)
+    text = _NONBREAKING_SPACE_RE.sub(" ", text)
+    text = _CONTROL_RE.sub("", text)
+    return text
+
 
 def clean_text_value(value, spec: TextPipelineSpec, preserve_alignment: bool = False) -> str:
     text = "" if value is None else str(value)
+    text = _normalize_base(text)
     if preserve_alignment:
         if spec.whitespace_normalization:
-            text = re.sub(r"\s+", " ", text).strip()
+            text = re.sub(r"[ \t]+", " ", text).strip()
         return text
     if spec.clean_urls_emails_html:
         text = re.sub(r"<[^>]+>", " ", text)
         text = re.sub(r"https?://\S+|www\.\S+", " URL ", text)
-        text = re.sub(r"\b[\w\.-]+@[\w\.-]+\.\w+\b", " EMAIL ", text)
+        text = re.sub(r"\b[\w.\-]+@[\w.\-]+\.\w+\b", " EMAIL ", text)
+        text = re.sub(r"@\w+", " MENTION ", text)
+        text = re.sub(r"#(\w+)", r" \1 ", text)
+    text = _EXCESSIVE_PUNCT_RE.sub(r"\1", text)
     if spec.emoji_handling == "remove":
-        text = re.sub(r"[\U00010000-\U0010ffff]", " ", text)
+        text = _EMOJI_RE.sub(" ", text)
     elif spec.emoji_handling == "describe":
-        text = re.sub(r"[\U00010000-\U0010ffff]", " EMOJI ", text)
+        text = _EMOJI_RE.sub(" EMOJI ", text)
     if spec.number_normalization == "replace":
         text = re.sub(r"\d+", " NUMBER ", text)
     elif spec.number_normalization == "remove":

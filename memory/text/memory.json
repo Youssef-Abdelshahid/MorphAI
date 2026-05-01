@@ -1,0 +1,547 @@
+{
+  "schema_version": 1,
+  "score_system": "normalized_text_v1",
+  "runs": [
+    {
+      "id": "20260428_163926_867054",
+      "timestamp": "2026-04-28T16:39:26.867054",
+      "schema_version": 1,
+      "score_system": "normalized_text_v1",
+      "modality": "text",
+      "dataset": "dataset.csv",
+      "task_type": "classification_single",
+      "metric_priority": "macro_f1",
+      "selected_metric": "macro_f1",
+      "normalized_score": 0.934372,
+      "best_score": 0.934372,
+      "raw_metrics": {
+        "accuracy": 0.9456785269641569,
+        "macro_f1": 0.9343717215445073,
+        "weighted_f1": 0.9455087863581659,
+        "precision": 0.9360325851517524,
+        "recall": 0.9333121950543358
+      },
+      "evaluation_mode": "supervised",
+      "evaluator_details": {
+        "model_family": "tfidf + shallow text classifier",
+        "models": [
+          "tfidf_logistic_regression",
+          "tfidf_linear_svc",
+          "tfidf_multinomial_nb"
+        ]
+      },
+      "profile_summary": {
+        "n_samples": 20348,
+        "columns": [
+          "text_type",
+          "text"
+        ],
+        "task_type": "classification_single",
+        "resolved_columns": {
+          "text": "text",
+          "label": "text_type"
+        },
+        "primary_text_columns": [
+          "text"
+        ],
+        "target_columns": [
+          "text_type"
+        ],
+        "n_empty_texts": 0,
+        "duplicate_text_count": 14,
+        "duplicate_ratio": 0.000688,
+        "empty_text_ratio": 0.0,
+        "avg_char_length": 310.914,
+        "avg_token_length": 56.756,
+        "min_char_length": 1,
+        "max_char_length": 800,
+        "char_length_std": 288.061,
+        "token_length_std": 52.2,
+        "text_length_distribution": {
+          "100-499 words": 5651,
+          "10-99 words": 10495,
+          "<10 words": 4195,
+          "empty": 7
+        },
+        "vocabulary_size_estimate": 60584,
+        "unique_token_ratio": 0.05246,
+        "language_distribution": {
+          "Latin": 19793,
+          "Chinese": 11,
+          "Unknown": 536,
+          "Arabic": 8
+        },
+        "label_distribution": {
+          "ham": 14337,
+          "spam": 6011
+        },
+        "n_classes": 2,
+        "imbalance_ratio": 2.39,
+        "min_class_size": 6011,
+        "missing_target_count": 0,
+        "noise_counts": {
+          "urls": 6,
+          "emails": 0,
+          "html": 0,
+          "emojis": 1781,
+          "excessive_punctuation": 75,
+          "numbers": 11634,
+          "all_caps": 13
+        },
+        "noise_ratios": {
+          "urls": 0.00029486927462158444,
+          "emails": 0.0,
+          "html": 0.0,
+          "emojis": 0.08752702968350698,
+          "excessive_punctuation": 0.0036858659327698054,
+          "numbers": 0.5717515234912522,
+          "all_caps": 0.0006388834283467663
+        },
+        "noise_ratio": 0.596865,
+        "annotation_validity": {
+          "valid_count": 0,
+          "invalid_count": 0,
+          "valid_ratio": 0.0
+        },
+        "annotation_invalid_ratio": 0.0,
+        "source_target_length_ratio": 0.0
+      },
+      "text_meta_features": {
+        "sample_count_bucket": "large",
+        "sample_count_ratio": 0.7180869548265528,
+        "average_length_bucket": "medium",
+        "length_variance_bucket": "medium",
+        "vocabulary_size_bucket": "large",
+        "duplicate_ratio": 0.0006880283074503637,
+        "empty_text_ratio": 0.0,
+        "noise_ratio": 0.5968645567131905,
+        "label_count": 2,
+        "class_imbalance_ratio": 2.3851272666777574,
+        "annotation_missing_ratio": 0.0,
+        "source_target_length_ratio": 0.0,
+        "task_type": "classification_single",
+        "supervision_type": "supervised",
+        "selected_metric": "macro_f1",
+        "preprocessing_pipeline_components": {
+          "lowercase": true,
+          "clean_urls_emails_html": true,
+          "emoji_handling": "describe",
+          "punctuation_handling": "space",
+          "number_normalization": "replace",
+          "whitespace_normalization": true,
+          "stopword_removal": false,
+          "normalization_strategy": "none",
+          "tokenization_strategy": "word",
+          "max_sequence_length": 512,
+          "min_df": 2,
+          "representation": "tfidf_word",
+          "imbalance": "class_weight"
+        }
+      },
+      "selected_pipeline": {
+        "lowercase": true,
+        "clean_urls_emails_html": true,
+        "emoji_handling": "describe",
+        "punctuation_handling": "space",
+        "number_normalization": "replace",
+        "whitespace_normalization": true,
+        "stopword_removal": false,
+        "normalization_strategy": "none",
+        "tokenization_strategy": "word",
+        "max_sequence_length": 512,
+        "min_df": 2,
+        "representation": "tfidf_word",
+        "imbalance": "class_weight"
+      },
+      "best_pipeline": {
+        "lowercase": true,
+        "clean_urls_emails_html": true,
+        "emoji_handling": "describe",
+        "punctuation_handling": "space",
+        "number_normalization": "replace",
+        "whitespace_normalization": true,
+        "stopword_removal": false,
+        "normalization_strategy": "none",
+        "tokenization_strategy": "word",
+        "max_sequence_length": 512,
+        "min_df": 2,
+        "representation": "tfidf_word",
+        "imbalance": "class_weight"
+      },
+      "all_pipelines_tested": [
+        {
+          "rank": 1,
+          "pipeline_name": "case=lower | clean=yes | tok=word | repr=tfidf_word | maxlen=512 | min_df=2 | punct=space | num=replace | emoji=describe | imb=class_weight",
+          "pipeline_config": {
+            "lowercase": true,
+            "clean_urls_emails_html": true,
+            "emoji_handling": "describe",
+            "punctuation_handling": "space",
+            "number_normalization": "replace",
+            "whitespace_normalization": true,
+            "stopword_removal": false,
+            "normalization_strategy": "none",
+            "tokenization_strategy": "word",
+            "max_sequence_length": 512,
+            "min_df": 2,
+            "representation": "tfidf_word",
+            "imbalance": "class_weight"
+          },
+          "selected_metric": "macro_f1",
+          "raw_metrics": {
+            "accuracy": 0.9456785269641569,
+            "macro_f1": 0.9343717215445073,
+            "weighted_f1": 0.9455087863581659,
+            "precision": 0.9360325851517524,
+            "recall": 0.9333121950543358
+          },
+          "normalized_metrics": {
+            "accuracy": 0.9456785269641569,
+            "macro_f1": 0.9343717215445073,
+            "weighted_f1": 0.9455087863581659,
+            "precision": 0.9360325851517524,
+            "recall": 0.9333121950543358
+          },
+          "normalized_score": 0.934372,
+          "evaluation_mode": "supervised",
+          "evaluator_details": {
+            "model_family": "tfidf + shallow text classifier",
+            "models": [
+              "tfidf_logistic_regression",
+              "tfidf_linear_svc",
+              "tfidf_multinomial_nb"
+            ]
+          },
+          "evaluation_summary": "TF-IDF text classifiers evaluated 2 class(es).",
+          "success": true,
+          "reason": "",
+          "elapsed_sec": 5.481
+        },
+        {
+          "rank": 2,
+          "pipeline_name": "case=preserve | clean=yes | tok=word | repr=tfidf_char | maxlen=512 | min_df=1 | imb=class_weight",
+          "pipeline_config": {
+            "lowercase": false,
+            "clean_urls_emails_html": true,
+            "emoji_handling": "keep",
+            "punctuation_handling": "keep",
+            "number_normalization": "keep",
+            "whitespace_normalization": true,
+            "stopword_removal": false,
+            "normalization_strategy": "none",
+            "tokenization_strategy": "word",
+            "max_sequence_length": 512,
+            "min_df": 1,
+            "representation": "tfidf_char",
+            "imbalance": "class_weight"
+          },
+          "selected_metric": "macro_f1",
+          "raw_metrics": {
+            "accuracy": 0.9398466679771967,
+            "macro_f1": 0.9281117878075754,
+            "weighted_f1": 0.9399925415598998,
+            "precision": 0.9260533238935215,
+            "recall": 0.9303323845859867
+          },
+          "normalized_metrics": {
+            "accuracy": 0.9398466679771967,
+            "macro_f1": 0.9281117878075754,
+            "weighted_f1": 0.9399925415598998,
+            "precision": 0.9260533238935215,
+            "recall": 0.9303323845859867
+          },
+          "normalized_score": 0.928112,
+          "evaluation_mode": "supervised",
+          "evaluator_details": {
+            "model_family": "tfidf + shallow text classifier",
+            "models": [
+              "tfidf_logistic_regression",
+              "tfidf_linear_svc",
+              "tfidf_multinomial_nb"
+            ]
+          },
+          "evaluation_summary": "TF-IDF text classifiers evaluated 2 class(es).",
+          "success": true,
+          "reason": "",
+          "elapsed_sec": 14.714
+        },
+        {
+          "rank": 3,
+          "pipeline_name": "case=preserve | clean=no | tok=word | repr=raw_text | maxlen=512 | min_df=1",
+          "pipeline_config": {
+            "lowercase": false,
+            "clean_urls_emails_html": false,
+            "emoji_handling": "keep",
+            "punctuation_handling": "keep",
+            "number_normalization": "keep",
+            "whitespace_normalization": true,
+            "stopword_removal": false,
+            "normalization_strategy": "none",
+            "tokenization_strategy": "word",
+            "max_sequence_length": 512,
+            "min_df": 1,
+            "representation": "raw_text",
+            "imbalance": "none"
+          },
+          "selected_metric": "macro_f1",
+          "raw_metrics": {
+            "accuracy": 0.9408950920647401,
+            "macro_f1": 0.9273133221202473,
+            "weighted_f1": 0.9401650605656794,
+            "precision": 0.9381052548208615,
+            "recall": 0.9182635473101417
+          },
+          "normalized_metrics": {
+            "accuracy": 0.9408950920647401,
+            "macro_f1": 0.9273133221202473,
+            "weighted_f1": 0.9401650605656794,
+            "precision": 0.9381052548208615,
+            "recall": 0.9182635473101417
+          },
+          "normalized_score": 0.927313,
+          "evaluation_mode": "supervised",
+          "evaluator_details": {
+            "model_family": "tfidf + shallow text classifier",
+            "models": [
+              "tfidf_logistic_regression",
+              "tfidf_linear_svc",
+              "tfidf_multinomial_nb"
+            ]
+          },
+          "evaluation_summary": "TF-IDF text classifiers evaluated 2 class(es).",
+          "success": true,
+          "reason": "",
+          "elapsed_sec": 4.994
+        },
+        {
+          "rank": 4,
+          "pipeline_name": "case=lower | clean=yes | tok=char_word | repr=tfidf_char_word | maxlen=256 | min_df=2 | num=replace | emoji=remove | imb=class_weight",
+          "pipeline_config": {
+            "lowercase": true,
+            "clean_urls_emails_html": true,
+            "emoji_handling": "remove",
+            "punctuation_handling": "keep",
+            "number_normalization": "replace",
+            "whitespace_normalization": true,
+            "stopword_removal": false,
+            "normalization_strategy": "none",
+            "tokenization_strategy": "char_word",
+            "max_sequence_length": 256,
+            "min_df": 2,
+            "representation": "tfidf_char_word",
+            "imbalance": "class_weight"
+          },
+          "selected_metric": "macro_f1",
+          "raw_metrics": {
+            "accuracy": 0.9349625541978716,
+            "macro_f1": 0.921832580019908,
+            "weighted_f1": 0.9350276018403038,
+            "precision": 0.9208407209644817,
+            "recall": 0.9229116489008442
+          },
+          "normalized_metrics": {
+            "accuracy": 0.9349625541978716,
+            "macro_f1": 0.921832580019908,
+            "weighted_f1": 0.9350276018403038,
+            "precision": 0.9208407209644817,
+            "recall": 0.9229116489008442
+          },
+          "normalized_score": 0.921833,
+          "evaluation_mode": "supervised",
+          "evaluator_details": {
+            "model_family": "tfidf + shallow text classifier",
+            "models": [
+              "tfidf_logistic_regression",
+              "tfidf_linear_svc",
+              "tfidf_multinomial_nb"
+            ]
+          },
+          "evaluation_summary": "TF-IDF text classifiers evaluated 2 class(es).",
+          "success": true,
+          "reason": "",
+          "elapsed_sec": 12.904
+        },
+        {
+          "rank": 5,
+          "pipeline_name": "case=lower | clean=yes | tok=word | repr=tfidf_word | maxlen=256 | min_df=2 | punct=remove | num=replace | stopwords | norm=stem | emoji=remove | imb=class_weight",
+          "pipeline_config": {
+            "lowercase": true,
+            "clean_urls_emails_html": true,
+            "emoji_handling": "remove",
+            "punctuation_handling": "remove",
+            "number_normalization": "replace",
+            "whitespace_normalization": true,
+            "stopword_removal": true,
+            "normalization_strategy": "stem",
+            "tokenization_strategy": "word",
+            "max_sequence_length": 256,
+            "min_df": 2,
+            "representation": "tfidf_word",
+            "imbalance": "class_weight"
+          },
+          "selected_metric": "macro_f1",
+          "raw_metrics": {
+            "accuracy": 0.9314672448912543,
+            "macro_f1": 0.9162695960016601,
+            "weighted_f1": 0.9309572903382857,
+            "precision": 0.921007780429061,
+            "recall": 0.9138475188264742
+          },
+          "normalized_metrics": {
+            "accuracy": 0.9314672448912543,
+            "macro_f1": 0.9162695960016601,
+            "weighted_f1": 0.9309572903382857,
+            "precision": 0.921007780429061,
+            "recall": 0.9138475188264742
+          },
+          "normalized_score": 0.91627,
+          "evaluation_mode": "supervised",
+          "evaluator_details": {
+            "model_family": "tfidf + shallow text classifier",
+            "models": [
+              "tfidf_logistic_regression",
+              "tfidf_linear_svc",
+              "tfidf_multinomial_nb"
+            ]
+          },
+          "evaluation_summary": "TF-IDF text classifiers evaluated 2 class(es).",
+          "success": true,
+          "reason": "",
+          "elapsed_sec": 4.59
+        },
+        {
+          "rank": 6,
+          "pipeline_name": "case=lower | clean=yes | tok=word | repr=tfidf_word | maxlen=256 | min_df=1 | punct=remove | num=replace | stopwords | emoji=remove | imb=class_weight",
+          "pipeline_config": {
+            "lowercase": true,
+            "clean_urls_emails_html": true,
+            "emoji_handling": "remove",
+            "punctuation_handling": "remove",
+            "number_normalization": "replace",
+            "whitespace_normalization": true,
+            "stopword_removal": true,
+            "normalization_strategy": "none",
+            "tokenization_strategy": "word",
+            "max_sequence_length": 256,
+            "min_df": 1,
+            "representation": "tfidf_word",
+            "imbalance": "class_weight"
+          },
+          "selected_metric": "macro_f1",
+          "raw_metrics": {
+            "accuracy": 0.9312701228727249,
+            "macro_f1": 0.9161223459869537,
+            "weighted_f1": 0.9307968702602986,
+            "precision": 0.9205475634213727,
+            "recall": 0.9141000161713185
+          },
+          "normalized_metrics": {
+            "accuracy": 0.9312701228727249,
+            "macro_f1": 0.9161223459869537,
+            "weighted_f1": 0.9307968702602986,
+            "precision": 0.9205475634213727,
+            "recall": 0.9141000161713185
+          },
+          "normalized_score": 0.916122,
+          "evaluation_mode": "supervised",
+          "evaluator_details": {
+            "model_family": "tfidf + shallow text classifier",
+            "models": [
+              "tfidf_logistic_regression",
+              "tfidf_linear_svc",
+              "tfidf_multinomial_nb"
+            ]
+          },
+          "evaluation_summary": "TF-IDF text classifiers evaluated 2 class(es).",
+          "success": true,
+          "reason": "",
+          "elapsed_sec": 4.554
+        },
+        {
+          "rank": 7,
+          "pipeline_name": "case=lower | clean=yes | tok=word | repr=tfidf_word | maxlen=256 | min_df=1 | emoji=remove | imb=class_weight",
+          "pipeline_config": {
+            "lowercase": true,
+            "clean_urls_emails_html": true,
+            "emoji_handling": "remove",
+            "punctuation_handling": "keep",
+            "number_normalization": "keep",
+            "whitespace_normalization": true,
+            "stopword_removal": false,
+            "normalization_strategy": "none",
+            "tokenization_strategy": "word",
+            "max_sequence_length": 256,
+            "min_df": 1,
+            "representation": "tfidf_word",
+            "imbalance": "class_weight"
+          },
+          "selected_metric": "macro_f1",
+          "raw_metrics": {
+            "accuracy": 0.9301011693601366,
+            "macro_f1": 0.9152733305824051,
+            "weighted_f1": 0.9298564303623477,
+            "precision": 0.9176035668643805,
+            "recall": 0.9141239161750566
+          },
+          "normalized_metrics": {
+            "accuracy": 0.9301011693601366,
+            "macro_f1": 0.9152733305824051,
+            "weighted_f1": 0.9298564303623477,
+            "precision": 0.9176035668643805,
+            "recall": 0.9141239161750566
+          },
+          "normalized_score": 0.915273,
+          "evaluation_mode": "supervised",
+          "evaluator_details": {
+            "model_family": "tfidf + shallow text classifier",
+            "models": [
+              "tfidf_logistic_regression",
+              "tfidf_linear_svc",
+              "tfidf_multinomial_nb"
+            ]
+          },
+          "evaluation_summary": "TF-IDF text classifiers evaluated 2 class(es).",
+          "success": true,
+          "reason": "",
+          "elapsed_sec": 5.082
+        }
+      ],
+      "task_context": {
+        "task_type": "classification_single",
+        "task_family": "classification",
+        "domain": "",
+        "constraints": "",
+        "active_constraints": [],
+        "notes": "",
+        "modality": "Text",
+        "language": "English",
+        "text_source": "Email / messaging",
+        "text_length": "Variable / mixed",
+        "supervision": "supervised"
+      },
+      "constraints_options": {
+        "constraints": "",
+        "language": "English",
+        "text_source": "Email / messaging",
+        "text_length": "Variable / mixed"
+      },
+      "run_metadata": {
+        "pipelines_tested": 7,
+        "meta_learner_status": {
+          "is_mature": false,
+          "n_train": 0,
+          "weight": 0.0,
+          "min_to_use": 5,
+          "min_full_wt": 20,
+          "max_weight": 0.25
+        },
+        "memory_influence": {
+          "good_injections": 0,
+          "bad_avoidances": 0,
+          "meta_learner_weight": 0.0
+        }
+      },
+      "selection_reasoning": "Selected by highest normalized score = 0.9344 from Macro F1 = 0.9344; tie-broken by complexity then evaluation time."
+    }
+  ]
+}

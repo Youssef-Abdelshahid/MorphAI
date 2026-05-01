@@ -223,14 +223,54 @@ _TXT_TASK_OPTS = [
     "Relation extraction",
     "Semantic similarity / search",
     "Text summarization",
-    "Machine translation",
     "Question answering",
     "Text generation",
     "Topic modeling",
     "Language detection",
 ]
 
-_TXT_TASK_BACKEND = dict(_TXT_TASK_BACKEND_CFG)
+_TXT_TASK_BACKEND = {k: v for k, v in _TXT_TASK_BACKEND_CFG.items() if k in set(_TXT_TASK_OPTS)}
+
+_TASK_COL_FIELDS = {
+    "classification_single": [],
+    "classification_multi":  [],
+    "ner":                   [],
+    "pos":                   [],
+    "relation_extraction": [
+        ("entity1",  "Entity 1 column", True),
+        ("entity2",  "Entity 2 column", True),
+    ],
+    "semantic_similarity": [
+        ("text_a", "Text A column", False),
+        ("text_b", "Text B column", False),
+    ],
+    "summarization": [
+        ("source_text", "Source text column", False),
+    ],
+    "question_answering": [
+        ("context",  "Context / passage column", False),
+        ("question", "Question column",          False),
+    ],
+    "text_generation": [
+        ("prompt", "Prompt column", False),
+    ],
+    "topic_modeling":    [],
+    "language_detection": [],
+}
+
+_TXT_PRIMARY_TARGET = {
+    "classification_single": ("label",         "Label / target column",     True),
+    "classification_multi":  ("labels",         "Labels column",             False),
+    "ner":                   ("entities",        "Entity annotations column", True),
+    "pos":                   ("pos_tags",        "POS tags column",          True),
+    "relation_extraction":   ("relation",        "Relation column",          True),
+    "semantic_similarity":   ("similarity",      "Similarity / label column", False),
+    "summarization":         ("summary",         "Reference summary column", True),
+    "question_answering":    ("answer",           "Answer column",            True),
+    "text_generation":       ("completion",      "Completion / target column", True),
+    "topic_modeling":        None,
+    "language_detection":    ("language_label",  "Language label column",    True),
+}
 
 _TXT_LANG_OPTS = [
     _SENTINEL,
@@ -551,6 +591,10 @@ class RunViewMixin:
         )
         self._target.pack(side="left", fill="x", expand=True, padx=(6, 0))
 
+        self._txt_label_frame = ctk.CTkFrame(cfg_card, fg_color="transparent")
+        self._txt_label_entry = None
+        self._txt_label_key = ""
+
         self._csv_metric_frame = ctk.CTkFrame(cfg_card, fg_color="transparent")
         self._csv_metric_frame.pack(fill="x", pady=(0, 12))
 
@@ -601,6 +645,7 @@ class RunViewMixin:
         self._noncsv_spacer.pack_forget()
         self._csv_task_frame.pack_forget()
         self._csv_target_frame.pack_forget()
+        self._txt_label_frame.pack_forget()
         self._csv_metric_frame.pack_forget()
 
         if modality == "CSV / Tabular":
@@ -608,6 +653,12 @@ class RunViewMixin:
             self._csv_metric_frame.pack(fill="x", pady=(0, 12))
             if self._csv_task_var.get() in _CSV_SUPERVISED_SET:
                 self._csv_target_frame.pack(fill="x")
+        elif modality == "Text":
+            self._noncsv_spacer.pack(fill="x", pady=(0, 12))
+            task_var = self._modality_context_vars.get("task_type")
+            if task_var:
+                backend_task = _TXT_TASK_BACKEND.get(task_var.get(), "classification_single")
+                self._update_txt_label_field(backend_task)
         else:
             self._noncsv_spacer.pack(fill="x", pady=(0, 12))
 
@@ -751,6 +802,60 @@ class RunViewMixin:
             self._modality_context_vars["domain"] = domain_var
 
         elif modality == "Text":
+            def _rebuild_col_fields(backend_task: str) -> None:
+                frame = getattr(self, "_txt_col_frame", None)
+                hdr = getattr(self, "_txt_col_hdr", None)
+                anchor = getattr(self, "_txt_col_anchor", None)
+                if frame is None:
+                    return
+                try:
+                    for w in frame.winfo_children():
+                        w.destroy()
+                except Exception:
+                    return
+                self._txt_col_entries = {}
+                fields = _TASK_COL_FIELDS.get(backend_task, [])
+                if not fields:
+                    if hdr:
+                        hdr.pack_forget()
+                    frame.pack_forget()
+                    return
+                ref = anchor if anchor else None
+                if hdr:
+                    hdr.pack(fill="x", padx=14, pady=(4, 0), **({"before": ref} if ref else {}))
+                frame.pack(fill="x", **({"before": ref} if ref else {}))
+                for col_key, col_label, required in fields:
+                    row = ctk.CTkFrame(frame, fg_color="transparent")
+                    row.pack(fill="x", padx=14, pady=(2, 2))
+                    lbl_wrap = ctk.CTkFrame(row, fg_color="transparent")
+                    lbl_wrap.pack(side="left")
+                    ctk.CTkLabel(
+                        lbl_wrap, text=col_label,
+                        font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+                        text_color=TXT_MUTED, width=170, anchor="w",
+                    ).pack(side="left")
+                    if required:
+                        ctk.CTkLabel(
+                            lbl_wrap, text=" *",
+                            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+                            text_color=ERROR,
+                        ).pack(side="left")
+                    else:
+                        ctk.CTkLabel(
+                            lbl_wrap, text=" optional",
+                            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                            text_color=TXT_MUTED,
+                        ).pack(side="left")
+                    entry = ctk.CTkEntry(
+                        row,
+                        placeholder_text="auto-detect",
+                        fg_color=BG_INPUT, border_color=BORDER,
+                        text_color=TXT, placeholder_text_color=TXT_MUTED,
+                        corner_radius=8, font=ctk.CTkFont(family=FONT_FAMILY, size=13), height=30,
+                    )
+                    entry.pack(side="left", fill="x", expand=True, padx=(6, 0))
+                    self._txt_col_entries[col_key] = entry
+
             def _on_text_task_change(task: str) -> None:
                 backend_task = _TXT_TASK_BACKEND.get(task, "classification_single")
                 metric_menu = getattr(self, "_text_metric_menu", None)
@@ -759,6 +864,8 @@ class RunViewMixin:
                 if metric_menu is not None and metric_var is not None and values:
                     metric_menu.configure(values=values)
                     metric_var.set(text_default_metric_for_task(backend_task))
+                _rebuild_col_fields(backend_task)
+                self._update_txt_label_field(backend_task)
 
             task_var = ctk.StringVar(value=_TXT_TASK_OPTS[0])
             _ctx_row(ctx_card, "Task type", task_var, _TXT_TASK_OPTS, width=280, command=_on_text_task_change)
@@ -771,14 +878,36 @@ class RunViewMixin:
             self._modality_context_vars["metric"] = metric_var
             self._text_metric_menu = self._modality_menus[-1]
 
-            ctk.CTkLabel(ctx_card,
-                         text="Upload a structured CSV or Excel text dataset with one sample per row. Required columns depend on the selected task, such as text+label for classification or source_text+summary for summarization.",
-                         font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT_MUTED,
-                         wraplength=780, justify="left").pack(anchor="w", padx=154, pady=(0, 6))
+            ctk.CTkLabel(
+                ctx_card,
+                text="English text only — non-English rows are removed automatically before evaluation. "
+                     "Upload a CSV or Excel file with one sample per row.",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT_MUTED,
+                wraplength=780, justify="left",
+            ).pack(anchor="w", padx=154, pady=(0, 4))
 
-            lang_var = ctk.StringVar(value=_SENTINEL)
-            _ctx_row(ctx_card, "Language", lang_var, _TXT_LANG_OPTS, width=200)
-            self._modality_context_vars["language"] = lang_var
+            col_hdr = ctk.CTkFrame(ctx_card, fg_color="transparent")
+            ctk.CTkLabel(
+                col_hdr, text="Column mapping",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+                text_color=TXT_MUTED, width=170, anchor="w",
+            ).pack(side="left")
+            ctk.CTkLabel(
+                col_hdr, text="Leave blank to auto-detect  |  * = expected by backend",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=TXT_MUTED,
+            ).pack(side="left", padx=(6, 0))
+            self._txt_col_hdr = col_hdr
+
+            txt_col_frame = ctk.CTkFrame(ctx_card, fg_color="transparent")
+            self._txt_col_frame = txt_col_frame
+            self._txt_col_entries = {}
+
+            # Zero-height anchor that stays packed to preserve ordering
+            txt_col_anchor = ctk.CTkFrame(ctx_card, height=0, fg_color="transparent")
+            txt_col_anchor.pack(fill="x")
+            self._txt_col_anchor = txt_col_anchor
+
+            _rebuild_col_fields(initial_task)
 
             source_var = ctk.StringVar(value=_SENTINEL)
             _ctx_row(ctx_card, "Text source", source_var, _TXT_SOURCE_OPTS, width=260)
@@ -851,6 +980,62 @@ class RunViewMixin:
             cb.grid(row=idx // 2, column=idx % 2, sticky="w", pady=4, padx=(4, 0))
             self._modality_checks.append(cb)
 
+    def _update_txt_label_field(self, backend_task: str) -> None:
+        frame = getattr(self, "_txt_label_frame", None)
+        if frame is None:
+            return
+        for w in frame.winfo_children():
+            w.destroy()
+        self._txt_label_entry = None
+        self._txt_label_key = ""
+
+        target_info = _TXT_PRIMARY_TARGET.get(backend_task)
+        if target_info is None:
+            frame.pack_forget()
+            return
+
+        col_key, col_label, required = target_info
+        self._txt_label_key = col_key
+
+        row = ctk.CTkFrame(frame, fg_color="transparent")
+        row.pack(fill="x", padx=14, pady=6)
+
+        lbl_wrap = ctk.CTkFrame(row, fg_color="transparent")
+        lbl_wrap.pack(side="left")
+        ctk.CTkLabel(
+            lbl_wrap, text=col_label,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=TXT_MUTED, width=140, anchor="w",
+        ).pack(side="left")
+        if required:
+            ctk.CTkLabel(
+                lbl_wrap, text=" *",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+                text_color=ERROR,
+            ).pack(side="left")
+        else:
+            ctk.CTkLabel(
+                lbl_wrap, text=" optional",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=TXT_MUTED,
+            ).pack(side="left")
+
+        entry = ctk.CTkEntry(
+            row,
+            placeholder_text="auto-detect",
+            fg_color=BG_INPUT, border_color=BORDER,
+            text_color=TXT, placeholder_text_color=TXT_MUTED,
+            corner_radius=8, font=ctk.CTkFont(family=FONT_FAMILY, size=13), height=30,
+        )
+        entry.pack(side="left", fill="x", expand=True, padx=(6, 0))
+        self._txt_label_entry = entry
+
+        spacer = getattr(self, "_noncsv_spacer", None)
+        if spacer and spacer.winfo_manager():
+            frame.pack(fill="x", before=spacer)
+        else:
+            frame.pack(fill="x")
+
     def _get_context_fields(self) -> dict:
         def _val(var: ctk.StringVar) -> str:
             v = var.get()
@@ -872,10 +1057,41 @@ class RunViewMixin:
             raw_task = self._csv_task_var.get()
             result["task_type"] = _CSV_TASK_BACKEND.get(raw_task, "")
 
+        if modality == "Text":
+            col_overrides = {}
+            lbl_entry = getattr(self, "_txt_label_entry", None)
+            lbl_key = getattr(self, "_txt_label_key", "")
+            if lbl_entry is not None and lbl_key:
+                try:
+                    val = lbl_entry.get().strip()
+                    if val:
+                        col_overrides[lbl_key] = val
+                except Exception:
+                    pass
+            for key, entry in getattr(self, "_txt_col_entries", {}).items():
+                try:
+                    val = entry.get().strip()
+                    if val:
+                        col_overrides[key] = val
+                except Exception:
+                    pass
+            result["col_overrides"] = col_overrides
+
         return result
 
     def _clear_context_fields(self) -> None:
         self._target.delete(0, "end")
+        lbl_entry = getattr(self, "_txt_label_entry", None)
+        if lbl_entry is not None:
+            try:
+                lbl_entry.delete(0, "end")
+            except Exception:
+                pass
+        for entry in getattr(self, "_txt_col_entries", {}).values():
+            try:
+                entry.delete(0, "end")
+            except Exception:
+                pass
         self._notes.delete("1.0", "end")
         self._metric_var.set(default_metric_for_task(_CSV_TASK_BACKEND.get(self._csv_task_var.get(), "")))
         # To avoid visual flickering, do not reset modality or task type

@@ -5,21 +5,36 @@ import io
 import math
 import queue
 from pathlib import Path
+from typing import Dict, Optional
 
 from src.shared.selector import select_best
+from src.text.columns import resolve_columns
 from src.text.config import TextConfig
 from src.text.executor import evaluate_pipeline as evaluate_text_pipeline
 from src.text.memory_manager import TextMemoryManager
 from src.text.meta_learner import TextMetaLearner
 from src.text.output_writer import save_processed_dataset as save_text_processed_dataset
 from src.text.pipeline_generator import generate_pipelines as generate_text_pipelines
-from src.text.profiler import profile_text_dataset
+from src.text.profiler import profile_text_dataset, remove_empty_and_nonenglish_rows
 from src.text.reporter import generate_report as generate_text_report, print_profile_summary as print_text_profile_summary, save_report as save_text_report
 from src.text.validator import load_text_dataframe, validate_text_file, validate_text_run
 
 
 class TextAgentWorker:
-    def __init__(self, q: queue.Queue, data_path: Path, metric: str, task_type: str = "classification_single", domain: str = "", constraints: str = "", notes: str = "", language: str = "", text_source: str = "", text_length: str = "") -> None:
+    def __init__(
+        self,
+        q: queue.Queue,
+        data_path: Path,
+        metric: str,
+        task_type: str = "classification_single",
+        domain: str = "",
+        constraints: str = "",
+        notes: str = "",
+        language: str = "",
+        text_source: str = "",
+        text_length: str = "",
+        col_overrides: Optional[Dict[str, str]] = None,
+    ) -> None:
         self.q = q
         self.data_path = data_path
         self.metric = metric
@@ -30,6 +45,7 @@ class TextAgentWorker:
         self.language = language
         self.text_source = text_source
         self.text_length = text_length
+        self.col_overrides = col_overrides or {}
 
     def run(self) -> None:
         try:
@@ -39,11 +55,23 @@ class TextAgentWorker:
             self.q.put({"kind": "fail", "text": str(exc)})
 
     def _execute(self) -> None:
-        config = TextConfig(self.data_path, self.metric, self.task_type, self.domain, self.constraints, self.notes, "Text", self.language, self.text_source, self.text_length)
+        config = TextConfig(
+            self.data_path,
+            self.metric,
+            self.task_type,
+            self.domain,
+            self.constraints,
+            self.notes,
+            "Text",
+            self.language,
+            self.text_source,
+            self.text_length,
+            col_overrides=self.col_overrides or None,
+        )
         tc = config.task_context()
         self._sep()
         self._log("INFO", f"Dataset : {self.data_path.name}")
-        self._log("INFO", "Modality: Text")
+        self._log("INFO", "Modality: Text  [English-only]")
         self._log("INFO", f"Metric  : {self.metric}")
         self._log("INFO", f"Task    : {tc.get('task_type', '')}")
         self._sep()
@@ -57,7 +85,8 @@ class TextAgentWorker:
         self._log("OK", "  File type is supported.")
         self._step("[2/9] Loading dataset ...")
         df = load_text_dataframe(self.data_path)
-        self._log("OK", f"  {len(df):,} rows  x  {df.shape[1]} columns")
+        original_count = len(df)
+        self._log("OK", f"  {original_count:,} rows  x  {df.shape[1]} columns")
         self._step("[2b/9] Validating task-specific columns ...")
         val_errors = validate_text_run(config, df)
         if val_errors:
@@ -66,8 +95,29 @@ class TextAgentWorker:
             self.q.put({"kind": "fail", "text": "Validation failed: " + "; ".join(val_errors)})
             return
         self._log("OK", "  Validation passed.")
+        self._step("[2c/9] Filtering empty and non-English rows ...")
+        effective_overrides = config.col_overrides or {}
+        cols = resolve_columns(df, config.task_type, col_overrides=effective_overrides)
+        df, n_removed_invalid, n_removed_nonenglish = remove_empty_and_nonenglish_rows(df, cols, config.task_type)
+        if n_removed_invalid:
+            self._log("INFO", f"  Removed {n_removed_invalid:,} empty or invalid row(s).")
+        if n_removed_nonenglish:
+            self._log("INFO", f"  Removed {n_removed_nonenglish:,} non-English row(s).")
+        if df.empty:
+            msg = "All rows were removed during filtering. The dataset does not contain valid English text for this task."
+            self._log("ERROR", f"  {msg}")
+            self.q.put({"kind": "fail", "text": msg})
+            return
+        self._log("OK", f"  {len(df):,} usable English row(s) remain.")
         self._step("[3/9] Profiling text dataset ...")
-        profile = profile_text_dataset(df, config.task_type)
+        profile = profile_text_dataset(
+            df,
+            config.task_type,
+            col_overrides=effective_overrides,
+            original_row_count=original_count,
+            removed_empty_or_invalid_count=n_removed_invalid,
+            removed_non_english_count=n_removed_nonenglish,
+        )
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             print_text_profile_summary(profile)
@@ -97,6 +147,10 @@ class TextAgentWorker:
             "imbalance_ratio": profile.imbalance_ratio,
             "annotation_invalid_ratio": profile.annotation_validity.get("invalid_count", 0) / max(profile.n_samples, 1),
             "source_target_length_ratio": profile.source_target_length_ratio,
+            "original_row_count": profile.original_row_count,
+            "removed_empty_or_invalid_count": profile.removed_empty_or_invalid_count,
+            "removed_non_english_count": profile.removed_non_english_count,
+            "final_row_count": profile.n_samples,
         }
         self._step("[6/9] Generating candidate pipelines ...")
         pipelines, mem_msgs = generate_text_pipelines(profile, good_cases, bad_cases, meta_learner=meta, task_context=tc, profile_summary=profile_summary)
@@ -152,7 +206,38 @@ class TextAgentWorker:
         self._log("OK", "Agent run complete.")
         self._sep()
         ir = profile.imbalance_ratio
-        self.q.put({"kind": "done", "modality": "Text", "report": report, "report_path": report_path, "cleaned_path": cleaned_path, "cleaned_shape": cleaned_shape, "best_name": best["spec"].name(), "best_score": bs, "best_score_std": sd, "metric": selected_metric, "metrics": best["metrics"], "raw_metrics": best.get("raw_metrics", best["metrics"]), "metrics_std": best.get("metrics_std", {}), "normalized_metrics": best.get("normalized_metrics", {}), "per_model": best.get("per_model_metrics", {}), "evaluation_mode": best.get("evaluation_mode", ""), "evaluation_summary": best.get("evaluation_summary", ""), "n_splits": best.get("n_splits", "?"), "n_models": best.get("n_models", 1), "n_pipelines": len(results), "n_samples": profile.n_samples, "n_classes": profile.n_classes, "avg_token_length": profile.avg_token_length, "vocabulary_size_estimate": profile.vocabulary_size_estimate, "quality_info": f"empty={profile.n_empty_texts}, duplicate={profile.duplicate_text_count}, noise={profile.noise_ratio:.2%}", "imbalance_ratio": round(ir, 2) if math.isfinite(ir) else 999.9, "task_context": tc, "meta_status": ms_final, "mem_influence": mem_influence, "mem_update": outcome})
+        self.q.put({
+            "kind": "done", "modality": "Text", "report": report, "report_path": report_path,
+            "cleaned_path": cleaned_path, "cleaned_shape": cleaned_shape,
+            "best_name": best["spec"].name(), "best_score": bs, "best_score_std": sd,
+            "metric": selected_metric, "metrics": best["metrics"],
+            "raw_metrics": best.get("raw_metrics", best["metrics"]),
+            "metrics_std": best.get("metrics_std", {}),
+            "normalized_metrics": best.get("normalized_metrics", {}),
+            "per_model": best.get("per_model_metrics", {}),
+            "evaluation_mode": best.get("evaluation_mode", ""),
+            "evaluation_summary": best.get("evaluation_summary", ""),
+            "n_splits": best.get("n_splits", "?"),
+            "n_models": best.get("n_models", 1),
+            "n_pipelines": len(results),
+            "n_samples": profile.n_samples,
+            "n_classes": profile.n_classes,
+            "avg_token_length": profile.avg_token_length,
+            "vocabulary_size_estimate": profile.vocabulary_size_estimate,
+            "quality_info": (
+                f"empty={profile.n_empty_texts}, duplicate={profile.duplicate_text_count}, "
+                f"noise={profile.noise_ratio:.2%}, removed_invalid={n_removed_invalid}, "
+                f"removed_non_english={n_removed_nonenglish}"
+            ),
+            "imbalance_ratio": round(ir, 2) if math.isfinite(ir) else 999.9,
+            "task_context": tc,
+            "meta_status": ms_final,
+            "mem_influence": mem_influence,
+            "mem_update": outcome,
+            "original_row_count": original_count,
+            "removed_empty_or_invalid_count": n_removed_invalid,
+            "removed_non_english_count": n_removed_nonenglish,
+        })
 
     def _log(self, level: str, text: str) -> None:
         self.q.put({"kind": "log", "level": level, "text": text})

@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import ast
 import json
-import math
 import re
 from collections import Counter
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -44,6 +43,9 @@ class TextProfile:
     noise_ratio: float
     annotation_validity: Dict[str, object]
     source_target_length_ratio: float
+    original_row_count: int = 0
+    removed_empty_or_invalid_count: int = 0
+    removed_non_english_count: int = 0
 
 
 def _tokens(text: str) -> List[str]:
@@ -64,9 +66,9 @@ def _length_bucket(words: int) -> str:
 
 def _simple_language(text: str) -> str:
     s = str(text)
-    if re.search(r"[\u0600-\u06ff]", s):
+    if re.search(r"[؀-ۿ]", s):
         return "Arabic"
-    if re.search(r"[\u4e00-\u9fff]", s):
+    if re.search(r"[一-鿿]", s):
         return "Chinese"
     latin = len(re.findall(r"[A-Za-z]", s))
     letters = len(re.findall(r"[^\W\d_]", s, flags=re.UNICODE))
@@ -184,7 +186,7 @@ def _label_counts(df: pd.DataFrame, task_type: str, cols: Dict[str, object]) -> 
     return {}, 0
 
 
-def _primary_text_columns(task_type: str, cols: Dict[str, object]) -> List[str]:
+def _primary_text_columns(cols: Dict[str, object]) -> List[str]:
     order = ["text", "tokens", "source_text", "target_text", "context", "question", "prompt", "completion", "text_a", "text_b", "query", "document"]
     return [cols[k] for k in order if isinstance(cols.get(k), str)]
 
@@ -196,9 +198,84 @@ def _target_columns(cols: Dict[str, object]) -> List[str]:
     return list(dict.fromkeys(out))
 
 
-def profile_text_dataset(df: pd.DataFrame, task_type: str) -> TextProfile:
-    cols = resolve_columns(df, task_type)
-    text_cols = _primary_text_columns(task_type, cols)
+def is_likely_english(text: str, threshold: float = 0.7) -> bool:
+    if not text or not text.strip():
+        return True
+    letters = [c for c in text if c.isalpha()]
+    if not letters:
+        return True
+    latin_count = sum(1 for c in letters if ord(c) < 0x250)
+    return (latin_count / len(letters)) >= threshold
+
+
+def _primary_text_cols_for_task(task_type: str, cols: Dict[str, object]) -> List[str]:
+    task = (task_type or "").strip().lower()
+    candidates = []
+    if task in {"classification_single", "classification_multi", "ner", "pos", "relation_extraction", "topic_modeling", "language_detection"}:
+        if cols.get("text"):
+            candidates.append(cols["text"])
+    elif task == "semantic_similarity":
+        for k in ("text_a", "text_b", "query", "document"):
+            if cols.get(k):
+                candidates.append(cols[k])
+    elif task == "summarization":
+        if cols.get("source_text"):
+            candidates.append(cols["source_text"])
+    elif task == "machine_translation":
+        if cols.get("source_text"):
+            candidates.append(cols["source_text"])
+    elif task == "question_answering":
+        for k in ("context", "question"):
+            if cols.get(k):
+                candidates.append(cols[k])
+    elif task == "text_generation":
+        if cols.get("prompt"):
+            candidates.append(cols["prompt"])
+    return [c for c in dict.fromkeys(candidates) if isinstance(c, str)]
+
+
+def remove_empty_and_nonenglish_rows(
+    df: pd.DataFrame,
+    cols: Dict[str, object],
+    task_type: str,
+) -> Tuple[pd.DataFrame, int, int]:
+    text_cols = _primary_text_cols_for_task(task_type, cols)
+    if not text_cols:
+        text_cols = [cols.get("text")] if cols.get("text") else []
+
+    n_original = len(df)
+    valid_mask = pd.Series([True] * n_original, index=df.index)
+    for col in text_cols:
+        if col and col in df.columns:
+            col_empty = df[col].fillna("").astype(str).str.strip().eq("")
+            valid_mask &= ~col_empty
+    df_valid = df[valid_mask].copy()
+    n_removed_invalid = n_original - len(df_valid)
+
+    if df_valid.empty:
+        return df_valid, n_removed_invalid, 0
+
+    english_mask = pd.Series([True] * len(df_valid), index=df_valid.index)
+    for col in text_cols:
+        if col and col in df_valid.columns:
+            col_english = df_valid[col].fillna("").astype(str).map(is_likely_english)
+            english_mask &= col_english
+    df_english = df_valid[english_mask].copy()
+    n_removed_nonenglish = len(df_valid) - len(df_english)
+
+    return df_english, n_removed_invalid, n_removed_nonenglish
+
+
+def profile_text_dataset(
+    df: pd.DataFrame,
+    task_type: str,
+    col_overrides: Optional[Dict[str, str]] = None,
+    original_row_count: int = 0,
+    removed_empty_or_invalid_count: int = 0,
+    removed_non_english_count: int = 0,
+) -> TextProfile:
+    cols = resolve_columns(df, task_type, col_overrides=col_overrides)
+    text_cols = _primary_text_columns(cols)
     primary = text_cols[0] if text_cols else df.columns[0]
     texts = df[primary].fillna("").astype(str)
     char_lengths = texts.str.len().to_numpy(dtype=float)
@@ -208,12 +285,14 @@ def profile_text_dataset(df: pd.DataFrame, task_type: str) -> TextProfile:
     vocab = set(all_tokens)
     noise_patterns = {
         "urls": r"https?://|www\.",
-        "emails": r"\b[\w\.-]+@[\w\.-]+\.\w+\b",
+        "emails": r"\b[\w\.\-]+@[\w\.\-]+\.\w+\b",
         "html": r"<[^>]+>",
         "emojis": r"[\U00010000-\U0010ffff]",
         "excessive_punctuation": r"([!?.,])\1{2,}",
         "numbers": r"\d",
         "all_caps": r"\b[A-Z]{4,}\b",
+        "mentions": r"@\w+",
+        "hashtags": r"#\w+",
     }
     noise_counts = {name: int(texts.str.contains(pattern, regex=True, na=False).sum()) for name, pattern in noise_patterns.items()}
     noise_ratios = {name: count / max(len(df), 1) for name, count in noise_counts.items()}
@@ -257,4 +336,7 @@ def profile_text_dataset(df: pd.DataFrame, task_type: str) -> TextProfile:
         noise_ratio=sum(1 for text in texts if any(re.search(p, text) for p in noise_patterns.values())) / max(len(texts), 1),
         annotation_validity=annotation,
         source_target_length_ratio=source_target_ratio,
+        original_row_count=original_row_count or int(len(df)),
+        removed_empty_or_invalid_count=removed_empty_or_invalid_count,
+        removed_non_english_count=removed_non_english_count,
     )
