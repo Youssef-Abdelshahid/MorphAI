@@ -13,8 +13,8 @@ META_LEARNER_FILE = MEMORY_DIR / "meta_learner.pkl"
 
 _SIMILARITY_THRESHOLD = 0.58
 GOOD_SCORE_THRESHOLD = 0.60
-_MEMORY_SCHEMA_VERSION = 1
-_SCORE_SYSTEM = "normalized_text_v1"
+_MEMORY_SCHEMA_VERSION = 2
+_SCORE_SYSTEM = "normalized_text_v2"
 
 
 def text_meta_features(profile: TextProfile, task_type: str = "", selected_metric: str = "", pipeline: Optional[dict] = None) -> Dict[str, Any]:
@@ -39,6 +39,35 @@ def text_meta_features(profile: TextProfile, task_type: str = "", selected_metri
     }
 
 
+def mixed_feature_meta_features(profile: TextProfile, config: Optional[TextConfig] = None, pipeline: Optional[dict] = None) -> Dict[str, Any]:
+    num_cols = list(profile.auxiliary_numeric_columns or [])
+    cat_cols = list(profile.auxiliary_categorical_columns or [])
+    cardinalities = [profile.categorical_feature_profile.get(c, {}).get("cardinality", 0) for c in cat_cols]
+    skews = [abs(profile.numeric_feature_profile.get(c, {}).get("skew", 0.0)) for c in num_cols]
+    outlier_ratios = [profile.numeric_feature_profile.get(c, {}).get("outlier_ratio", 0.0) for c in num_cols]
+    skew_ratio = float(sum(1 for s in skews if s > 1.0)) / len(skews) if skews else 0.0
+    outlier_ratio = float(sum(outlier_ratios) / len(outlier_ratios)) if outlier_ratios else 0.0
+    return {
+        "has_tabular_features": bool(profile.has_tabular_features),
+        "num_extra_numeric_cols": len(num_cols),
+        "num_extra_categorical_cols": len(cat_cols),
+        "extra_feature_missing_ratio": profile.extra_feature_missing_ratio,
+        "extra_feature_cardinality_summary": {
+            "max": max(cardinalities) if cardinalities else 0,
+            "mean": sum(cardinalities) / len(cardinalities) if cardinalities else 0.0,
+        },
+        "extra_numeric_skew_ratio": skew_ratio,
+        "extra_numeric_outlier_ratio": outlier_ratio,
+        "text_feature_count": len(profile.primary_text_columns or []),
+        "selected_text_columns": list(profile.primary_text_columns or []),
+        "selected_auxiliary_feature_columns": list(num_cols) + list(cat_cols),
+        "fusion_strategy": (pipeline or {}).get("fusion_strategy", "text_only"),
+        "task_type": profile.task_type,
+        "selected_metric": (config.metric if config else "") or "",
+        "text_to_tabular_feature_ratio": profile.text_to_tabular_feature_ratio,
+    }
+
+
 def _features(summary: dict) -> Dict[str, float]:
     return {
         "samples": min(math.log10(max(float(summary.get("n_samples", 1)), 1.0)) / 6.0, 1.0),
@@ -52,6 +81,9 @@ def _features(summary: dict) -> Dict[str, float]:
         "imbalance": min(float(summary.get("imbalance_ratio", 1.0)), 50.0) / 50.0,
         "annotation_invalid": float(summary.get("annotation_invalid_ratio", 0.0)),
         "source_target": min(float(summary.get("source_target_length_ratio", 0.0)), 5.0) / 5.0,
+        "has_tabular": float(bool(summary.get("has_tabular_features", False))),
+        "n_numeric": min(float(summary.get("num_extra_numeric_cols", 0)), 50.0) / 50.0,
+        "n_categorical": min(float(summary.get("num_extra_categorical_cols", 0)), 50.0) / 50.0,
     }
 
 
@@ -96,6 +128,16 @@ def _profile_summary(profile: TextProfile) -> dict:
         "annotation_validity": profile.annotation_validity,
         "annotation_invalid_ratio": profile.annotation_validity.get("invalid_count", 0) / max(profile.n_samples, 1),
         "source_target_length_ratio": round(profile.source_target_length_ratio, 6),
+        "auxiliary_numeric_columns": profile.auxiliary_numeric_columns,
+        "auxiliary_categorical_columns": profile.auxiliary_categorical_columns,
+        "auxiliary_skipped_columns": profile.auxiliary_skipped_columns,
+        "numeric_feature_profile": profile.numeric_feature_profile,
+        "categorical_feature_profile": profile.categorical_feature_profile,
+        "extra_feature_missing_ratio": round(profile.extra_feature_missing_ratio, 6),
+        "text_to_tabular_feature_ratio": round(profile.text_to_tabular_feature_ratio, 6),
+        "has_tabular_features": profile.has_tabular_features,
+        "num_extra_numeric_cols": len(profile.auxiliary_numeric_columns or []),
+        "num_extra_categorical_cols": len(profile.auxiliary_categorical_columns or []),
     }
 
 
@@ -106,15 +148,21 @@ class TextMemoryManager:
     def load(self) -> None:
         MEMORY_DIR.mkdir(parents=True, exist_ok=True)
         if MEMORY_FILE.exists():
-            with open(MEMORY_FILE, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
+            try:
+                with open(MEMORY_FILE, "r", encoding="utf-8") as fh:
+                    data = json.load(fh)
+            except Exception:
+                data = {}
             if data.get("schema_version") == _MEMORY_SCHEMA_VERSION and data.get("score_system") == _SCORE_SYSTEM:
                 self._runs = data.get("runs", [])
             else:
                 self._runs = []
                 self.save()
                 if META_LEARNER_FILE.exists():
-                    META_LEARNER_FILE.unlink()
+                    try:
+                        META_LEARNER_FILE.unlink()
+                    except Exception:
+                        pass
         else:
             self._runs = []
 
@@ -190,6 +238,7 @@ class TextMemoryManager:
             "evaluator_details": best.get("evaluator_details", {}),
             "profile_summary": summary,
             "text_meta_features": text_meta_features(profile, config.task_type, selected_metric, best_pipeline),
+            "mixed_feature_meta_features": mixed_feature_meta_features(profile, config, best_pipeline),
             "selected_pipeline": best_pipeline,
             "best_pipeline": best_pipeline,
             "all_pipelines_tested": all_pipelines,
@@ -197,6 +246,9 @@ class TextMemoryManager:
             "constraints_options": {"constraints": config.constraints, "language": "English", "text_source": config.text_source, "text_length": config.text_length},
             "text_columns_used": summary.get("primary_text_columns", []),
             "target_columns_used": summary.get("target_columns", []),
+            "selected_auxiliary_feature_columns": list(profile.auxiliary_numeric_columns or []) + list(profile.auxiliary_categorical_columns or []),
+            "fusion_strategy": best_pipeline.get("fusion_strategy", "text_only"),
+            "evaluation_mode_summary": best.get("evaluation_summary", ""),
             "original_row_count": profile.original_row_count,
             "removed_empty_or_invalid_count": profile.removed_empty_or_invalid_count,
             "removed_non_english_count": profile.removed_non_english_count,

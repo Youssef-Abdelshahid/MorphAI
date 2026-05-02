@@ -381,6 +381,9 @@ class App(
                 text_source=ctx.get("text_source", ""),
                 text_length=ctx.get("text_length", ""),
                 col_overrides=ctx.get("col_overrides") or {},
+                auxiliary_feature_columns=ctx.get("auxiliary_feature_columns") or [],
+                multilabel_format=ctx.get("multilabel_format", "single_column"),
+                binary_label_columns=ctx.get("binary_label_columns") or [],
             )
             self._thread = threading.Thread(target=worker.run, daemon=True)
             self._thread.start()

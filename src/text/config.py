@@ -1,19 +1,17 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 TEXT_CLASSIFICATION_METRICS = ["accuracy", "macro_f1", "weighted_f1", "precision", "recall"]
-TEXT_MULTILABEL_METRICS = ["micro_f1", "macro_f1", "hamming_loss", "subset_accuracy", "precision", "recall"]
-NER_METRICS = ["entity_precision", "entity_recall", "entity_f1", "token_f1"]
+TEXT_MULTILABEL_METRICS = ["micro_f1", "macro_f1", "hamming_loss", "subset_accuracy"]
+NER_METRICS = ["entity_f1", "entity_precision", "entity_recall", "token_f1"]
 POS_METRICS = ["token_accuracy", "macro_f1", "weighted_f1"]
-RELATION_METRICS = ["macro_f1", "micro_f1", "precision", "recall", "accuracy"]
-SIMILARITY_METRICS = ["spearman", "pearson", "accuracy", "f1", "recall_at_k", "precision_at_k", "mrr", "ndcg"]
+RELATION_METRICS = ["macro_f1", "micro_f1", "accuracy", "precision", "recall"]
+SIMILARITY_PAIR_METRICS = ["spearman", "pearson"]
 SUMMARIZATION_METRICS = ["rouge1", "rouge2", "rouge_l", "bertscore"]
-TRANSLATION_METRICS = ["bleu", "chrf", "ter", "exact_match"]
-QA_METRICS = ["exact_match", "token_f1", "answer_start_accuracy"]
-GENERATION_METRICS = ["rouge_l", "bleu", "exact_match", "inverse_perplexity"]
+QA_METRICS = ["exact_match", "token_f1"]
+GENERATION_METRICS = ["rouge_l", "bleu", "inverse_perplexity"]
 TOPIC_METRICS = ["coherence", "topic_diversity", "silhouette", "nmi", "ari"]
-LANGUAGE_METRICS = ["accuracy", "macro_f1", "weighted_f1"]
 
 _TXT_TASK_BACKEND = {
     "Text classification (single-label)": "classification_single",
@@ -23,11 +21,9 @@ _TXT_TASK_BACKEND = {
     "Relation extraction": "relation_extraction",
     "Semantic similarity / search": "semantic_similarity",
     "Text summarization": "summarization",
-    "Machine translation": "machine_translation",
     "Question answering": "question_answering",
     "Text generation": "text_generation",
     "Topic modeling": "topic_modeling",
-    "Language detection": "language_detection",
 }
 
 VALID_TASK_TYPES = list(_TXT_TASK_BACKEND.values())
@@ -41,11 +37,9 @@ _TASK_FAMILIES = {
     "relation_extraction": "information_extraction",
     "semantic_similarity": "retrieval",
     "summarization": "seq2seq",
-    "machine_translation": "seq2seq",
     "question_answering": "qa",
     "text_generation": "generation",
     "topic_modeling": "topic",
-    "language_detection": "classification",
 }
 
 _TASK_METRICS = {
@@ -54,13 +48,11 @@ _TASK_METRICS = {
     "ner": NER_METRICS,
     "pos": POS_METRICS,
     "relation_extraction": RELATION_METRICS,
-    "semantic_similarity": SIMILARITY_METRICS,
+    "semantic_similarity": SIMILARITY_PAIR_METRICS,
     "summarization": SUMMARIZATION_METRICS,
-    "machine_translation": TRANSLATION_METRICS,
     "question_answering": QA_METRICS,
     "text_generation": GENERATION_METRICS,
     "topic_modeling": TOPIC_METRICS,
-    "language_detection": LANGUAGE_METRICS,
 }
 
 _DEFAULT_METRICS = {
@@ -71,11 +63,9 @@ _DEFAULT_METRICS = {
     "relation_extraction": "macro_f1",
     "semantic_similarity": "spearman",
     "summarization": "rouge_l",
-    "machine_translation": "chrf",
     "question_answering": "token_f1",
     "text_generation": "rouge_l",
     "topic_modeling": "coherence",
-    "language_detection": "macro_f1",
 }
 
 _METRIC_LABELS = {
@@ -94,20 +84,12 @@ _METRIC_LABELS = {
     "token_accuracy": "Token accuracy",
     "spearman": "Spearman correlation",
     "pearson": "Pearson correlation",
-    "f1": "F1",
-    "recall_at_k": "Recall@k",
-    "precision_at_k": "Precision@k",
-    "mrr": "MRR",
-    "ndcg": "NDCG",
     "rouge1": "ROUGE-1",
     "rouge2": "ROUGE-2",
     "rouge_l": "ROUGE-L",
     "bertscore": "BERTScore",
     "bleu": "BLEU",
-    "chrf": "chrF",
-    "ter": "TER",
     "exact_match": "Exact match",
-    "answer_start_accuracy": "Answer start accuracy",
     "inverse_perplexity": "Inverse perplexity",
     "coherence": "Topic coherence",
     "topic_diversity": "Topic diversity",
@@ -137,6 +119,11 @@ def metric_label(metric: str) -> str:
     return _METRIC_LABELS.get(metric, metric.replace("_", " ").title())
 
 
+SEQ_LABELING_TASKS = {"ner", "pos"}
+SEQ2SEQ_TASKS = {"summarization", "question_answering", "text_generation"}
+TABULAR_FUSION_COMPATIBLE = {"classification_single", "classification_multi", "relation_extraction", "semantic_similarity", "topic_modeling"}
+
+
 @dataclass
 class TextConfig:
     data_path: Path
@@ -150,6 +137,9 @@ class TextConfig:
     text_source: str = ""
     text_length: str = ""
     col_overrides: Optional[Dict[str, str]] = None
+    auxiliary_feature_columns: List[str] = field(default_factory=list)
+    multilabel_format: str = "single_column"
+    binary_label_columns: List[str] = field(default_factory=list)
 
     @property
     def supervision(self) -> str:
@@ -165,6 +155,10 @@ class TextConfig:
             return []
         return [c.strip() for c in self.constraints.split(",") if c.strip()]
 
+    @property
+    def supports_tabular_fusion(self) -> bool:
+        return normalize_task_type(self.task_type) in TABULAR_FUSION_COMPATIBLE
+
     def task_context(self) -> dict:
         task_type = normalize_task_type(self.task_type)
         return {
@@ -179,4 +173,6 @@ class TextConfig:
             "text_source": self.text_source,
             "text_length": self.text_length,
             "supervision": self.supervision,
+            "auxiliary_feature_columns": list(self.auxiliary_feature_columns or []),
+            "multilabel_format": self.multilabel_format,
         }

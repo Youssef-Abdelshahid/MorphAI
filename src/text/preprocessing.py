@@ -19,6 +19,10 @@ class TextPipelineSpec:
     min_df: int
     representation: str
     imbalance: str = "none"
+    fusion_strategy: str = "text_only"
+    numeric_imputation: str = "mean"
+    numeric_scaling: str = "standard"
+    categorical_encoding: str = "onehot"
 
     def to_dict(self) -> dict:
         return {
@@ -35,6 +39,10 @@ class TextPipelineSpec:
             "min_df": self.min_df,
             "representation": self.representation,
             "imbalance": self.imbalance,
+            "fusion_strategy": self.fusion_strategy,
+            "numeric_imputation": self.numeric_imputation,
+            "numeric_scaling": self.numeric_scaling,
+            "categorical_encoding": self.categorical_encoding,
         }
 
     @classmethod
@@ -53,6 +61,10 @@ class TextPipelineSpec:
             min_df=int(d.get("min_df", 1)),
             representation=d.get("representation", "tfidf_word"),
             imbalance=d.get("imbalance", "none"),
+            fusion_strategy=d.get("fusion_strategy", "text_only"),
+            numeric_imputation=d.get("numeric_imputation", "mean"),
+            numeric_scaling=d.get("numeric_scaling", "standard"),
+            categorical_encoding=d.get("categorical_encoding", "onehot"),
         )
 
     def name(self) -> str:
@@ -76,6 +88,11 @@ class TextPipelineSpec:
             parts.append(f"emoji={self.emoji_handling}")
         if self.imbalance != "none":
             parts.append(f"imb={self.imbalance}")
+        if self.fusion_strategy != "text_only":
+            parts.append(f"fusion={self.fusion_strategy}")
+            parts.append(f"num_imp={self.numeric_imputation}")
+            parts.append(f"num_sc={self.numeric_scaling}")
+            parts.append(f"cat_enc={self.categorical_encoding}")
         return " | ".join(parts)
 
     def complexity_score(self) -> int:
@@ -88,6 +105,7 @@ class TextPipelineSpec:
         score += int(self.normalization_strategy != "none")
         score += int(self.representation != "tfidf_word")
         score += int(self.imbalance != "none")
+        score += int(self.fusion_strategy != "text_only")
         return score
 
 
@@ -106,17 +124,43 @@ _EMOJI_RE = re.compile(
     re.UNICODE,
 )
 
-_NONBREAKING_SPACE_RE = re.compile(r"[  -   　]+")
-_ZEROWIDTH_RE = re.compile(r"[​-‏  ﻿­·]+")
+_NONBREAKING_SPACE_RE = re.compile(
+    "[   -     　]+"
+)
+_ZEROWIDTH_RE = re.compile(
+    "[​‌‍‎‏⁠﻿­]+"
+)
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]+")
 _EXCESSIVE_PUNCT_RE = re.compile(r"([!?.,;:\-])\1{2,}")
+
+_EMOJI_NAME_NOISE = {"symbol", "sign", "selector", "variation"}
+EMOJI_STRATEGIES = {"remove", "preserve", "keep", "translate_to_text", "describe", "limit_then_translate"}
+EMOJI_RUN_LIMIT = 2
+
+_EMOJI_RUN_RE = re.compile(
+    r"([\U0001F300-\U0001F9FF\U0001FA00-\U0001FAFF\U00002600-\U000027BF])\1{" + str(EMOJI_RUN_LIMIT) + r",}"
+)
+
+
+def _emoji_describe(match: "re.Match") -> str:
+    name = unicodedata.name(match.group(0), "")
+    if not name:
+        return " emoji "
+    parts = [p for p in re.split(r"[^A-Za-z0-9]+", name.lower()) if p and p not in _EMOJI_NAME_NOISE]
+    if not parts:
+        return " emoji "
+    return " " + " ".join(parts) + " "
+
+
+def _collapse_emoji_runs(text: str) -> str:
+    return _EMOJI_RUN_RE.sub(lambda m: m.group(1) * EMOJI_RUN_LIMIT, text)
 
 
 def _normalize_base(text: str) -> str:
     text = unicodedata.normalize("NFC", text)
     text = _ZEROWIDTH_RE.sub("", text)
     text = _NONBREAKING_SPACE_RE.sub(" ", text)
-    text = _CONTROL_RE.sub("", text)
+    text = _CONTROL_RE.sub(" ", text)
     return text
 
 
@@ -134,10 +178,14 @@ def clean_text_value(value, spec: TextPipelineSpec, preserve_alignment: bool = F
         text = re.sub(r"@\w+", " MENTION ", text)
         text = re.sub(r"#(\w+)", r" \1 ", text)
     text = _EXCESSIVE_PUNCT_RE.sub(r"\1", text)
-    if spec.emoji_handling == "remove":
+    strategy = (spec.emoji_handling or "preserve").lower()
+    if strategy == "remove":
         text = _EMOJI_RE.sub(" ", text)
-    elif spec.emoji_handling == "describe":
-        text = _EMOJI_RE.sub(" EMOJI ", text)
+    elif strategy in ("describe", "translate_to_text"):
+        text = _EMOJI_RE.sub(_emoji_describe, text)
+    elif strategy == "limit_then_translate":
+        text = _collapse_emoji_runs(text)
+        text = _EMOJI_RE.sub(_emoji_describe, text)
     if spec.number_normalization == "replace":
         text = re.sub(r"\d+", " NUMBER ", text)
     elif spec.number_normalization == "remove":

@@ -4,8 +4,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .config import TextConfig, metric_label, valid_metrics_for_task
-from .memory_manager import text_meta_features
+from .config import TextConfig, metric_label
+from .memory_manager import mixed_feature_meta_features, text_meta_features
 from .preprocessing import TextPipelineSpec
 from .profiler import TextProfile
 
@@ -19,6 +19,13 @@ def _profile_to_dict(profile: TextProfile) -> dict:
         "original_row_count": profile.original_row_count,
         "removed_empty_or_invalid_count": profile.removed_empty_or_invalid_count,
         "removed_non_english_count": profile.removed_non_english_count,
+        "removed_language_uncertain_count": profile.removed_language_uncertain_count,
+        "removed_too_noisy_count": profile.removed_too_noisy_count,
+        "language_filter_method": profile.language_filter_method,
+        "emoji_strategy": profile.emoji_strategy,
+        "emoji_translated_count": profile.emoji_translated_count,
+        "emoji_removed_count": profile.emoji_removed_count,
+        "removed_excessive_emoji_count": profile.removed_excessive_emoji_count,
         "final_row_count": profile.n_samples,
         "columns": profile.columns,
         "task_type": profile.task_type,
@@ -49,6 +56,14 @@ def _profile_to_dict(profile: TextProfile) -> dict:
         "noise_ratio": round(profile.noise_ratio, 6),
         "annotation_validity": profile.annotation_validity,
         "source_target_length_ratio": round(profile.source_target_length_ratio, 6),
+        "auxiliary_numeric_columns": profile.auxiliary_numeric_columns,
+        "auxiliary_categorical_columns": profile.auxiliary_categorical_columns,
+        "auxiliary_skipped_columns": profile.auxiliary_skipped_columns,
+        "numeric_feature_profile": profile.numeric_feature_profile,
+        "categorical_feature_profile": profile.categorical_feature_profile,
+        "extra_feature_missing_ratio": round(profile.extra_feature_missing_ratio, 6),
+        "text_to_tabular_feature_ratio": round(profile.text_to_tabular_feature_ratio, 6),
+        "has_tabular_features": profile.has_tabular_features,
     }
 
 
@@ -57,9 +72,11 @@ def generate_explanation(profile: TextProfile, best: Dict[str, Any], metric: str
     selected_metric = best.get("selected_metric", metric)
     raw = best.get("raw_metrics", best["metrics"])
     normalized = best.get("normalized_score", best.get("final_score", 0.0))
+    fusion_used = bool(best.get("evaluator_details", {}).get("fusion_used", False))
     lines = [
         f"The best text pipeline scored {raw.get(selected_metric, 0.0):.4f} {metric_label(selected_metric)} with a normalized score of {normalized:.4f}.",
         f"Evaluation mode: {best.get('evaluation_mode', 'unknown')}.",
+        f"Best pipeline used: {'text + tabular features' if fusion_used else 'text only'}.",
     ]
     if best.get("evaluation_summary"):
         lines.append(best["evaluation_summary"])
@@ -75,6 +92,8 @@ def generate_explanation(profile: TextProfile, best: Dict[str, Any], metric: str
     lines.append(f"- Max sequence length: {spec.max_sequence_length}.")
     if spec.imbalance != "none":
         lines.append(f"- Class imbalance handling: {spec.imbalance}.")
+    if spec.fusion_strategy != "text_only":
+        lines.append(f"- Fusion strategy: {spec.fusion_strategy} (numeric impute={spec.numeric_imputation}, scaling={spec.numeric_scaling}, cat encoding={spec.categorical_encoding}).")
     if best.get("evaluation_mode") == "fallback":
         lines.append("")
         lines.append("This run used an explicit lightweight fallback baseline because no heavier pretrained model is bundled for this task.")
@@ -95,20 +114,23 @@ def generate_report(profile: TextProfile, results: List[Dict[str, Any]], best: D
     sorted_results = sorted(results, key=lambda result: -result.get("normalized_score", result.get("final_score", 0.0)))
     selected_metric = best.get("selected_metric", config.metric)
     profile_dict = _profile_to_dict(profile)
-    learning_summary = {}
+    learning_summary: Dict[str, Any] = {}
     if meta_status:
         learning_summary["meta_learner"] = meta_status
     if mem_influence:
         learning_summary["memory_influence"] = mem_influence
     if mem_update_outcome:
         learning_summary["memory_update"] = mem_update_outcome
+    best_pipeline_dict = best["spec"].to_dict()
+    fusion_used = bool(best.get("evaluator_details", {}).get("fusion_used", False))
     return {
         "timestamp": datetime.now().isoformat(),
         "modality": "Text",
         "config": {"data_path": str(config.data_path), "metric": config.metric},
         "task_context": tc,
         "profile_summary": profile_dict,
-        "text_meta_features": text_meta_features(profile, config.task_type, selected_metric, best["spec"].to_dict()),
+        "text_meta_features": text_meta_features(profile, config.task_type, selected_metric, best_pipeline_dict),
+        "mixed_feature_meta_features": mixed_feature_meta_features(profile, config, best_pipeline_dict),
         "pipelines_tested": len(results),
         "n_models": best.get("n_models", 1),
         "results": [
@@ -137,7 +159,7 @@ def generate_report(profile: TextProfile, results: List[Dict[str, Any]], best: D
         ],
         "best_pipeline": {
             "name": best["spec"].name(),
-            "config": best["spec"].to_dict(),
+            "config": best_pipeline_dict,
             "selected_metric": selected_metric,
             "metrics": best["metrics"],
             "raw_metrics": best.get("raw_metrics", best["metrics"]),
@@ -153,20 +175,44 @@ def generate_report(profile: TextProfile, results: List[Dict[str, Any]], best: D
             "n_splits": best.get("n_splits"),
             "n_models": best.get("n_models"),
             "elapsed_sec": best.get("elapsed_sec", 0.0),
+            "fusion_used": fusion_used,
+            "fusion_strategy": best_pipeline_dict.get("fusion_strategy", "text_only"),
         },
         "text_report_sections": {
             "english_only_support": "This run processed English-only text. Rows detected as non-English were removed before evaluation.",
+            "selected_task_type": tc.get("task_type", ""),
+            "selected_metric": selected_metric,
+            "user_provided_columns": (config.col_overrides or {}),
             "dataset_overview": {"samples": profile.n_samples, "text_columns": profile.primary_text_columns, "target_columns": profile.target_columns},
             "row_filtering_summary": {
                 "original_row_count": profile.original_row_count,
                 "removed_empty_or_invalid": profile.removed_empty_or_invalid_count,
                 "removed_non_english": profile.removed_non_english_count,
+                "removed_language_uncertain": profile.removed_language_uncertain_count,
+                "removed_too_noisy": profile.removed_too_noisy_count,
+                "language_filter_method": profile.language_filter_method,
                 "final_usable_rows": profile.n_samples,
+            },
+            "emoji_handling_summary": {
+                "emoji_strategy": profile.emoji_strategy,
+                "emoji_translated_count": profile.emoji_translated_count,
+                "emoji_removed_count": profile.emoji_removed_count,
+                "removed_excessive_emoji_count": profile.removed_excessive_emoji_count,
             },
             "column_validation_result": {
                 "resolved_text_columns": profile.primary_text_columns,
                 "resolved_target_columns": profile.target_columns,
                 "all_resolved_columns": {k: v for k, v in profile.resolved_columns.items() if isinstance(v, str)},
+            },
+            "auxiliary_feature_summary": {
+                "numeric_columns": profile.auxiliary_numeric_columns,
+                "categorical_columns": profile.auxiliary_categorical_columns,
+                "skipped_columns": profile.auxiliary_skipped_columns,
+                "numeric_profile": profile.numeric_feature_profile,
+                "categorical_profile": profile.categorical_feature_profile,
+                "has_tabular_features": profile.has_tabular_features,
+                "extra_feature_missing_ratio": round(profile.extra_feature_missing_ratio, 4),
+                "text_to_tabular_feature_ratio": round(profile.text_to_tabular_feature_ratio, 4),
             },
             "noisy_text_handling_summary": {"noise_counts": profile.noise_counts, "noise_ratios": profile.noise_ratios, "overall_noise_ratio": round(profile.noise_ratio, 4)},
             "text_length_statistics": profile.text_length_distribution,
@@ -176,7 +222,8 @@ def generate_report(profile: TextProfile, results: List[Dict[str, Any]], best: D
             "annotation_validation": profile.annotation_validity,
             "source_target_length_ratio": profile.source_target_length_ratio,
             "preprocessing_strategies_tested": [r["spec"].to_dict() for r in sorted_results],
-            "best_selected_pipeline": best["spec"].to_dict(),
+            "best_selected_pipeline": best_pipeline_dict,
+            "best_pipeline_used_features": "text + tabular features" if fusion_used else "text only",
             "task_specific_raw_metrics": best.get("raw_metrics", best["metrics"]),
             "normalized_score": best.get("normalized_score", best.get("final_score")),
             "evaluation_mode": best.get("evaluation_mode", ""),
@@ -207,6 +254,10 @@ def print_profile_summary(profile: TextProfile) -> None:
     print(f"  Usable rows        : {profile.n_samples:,}")
     print(f"  Text columns       : {profile.primary_text_columns}")
     print(f"  Target columns     : {profile.target_columns}")
+    print(f"  Aux numeric cols   : {profile.auxiliary_numeric_columns}")
+    print(f"  Aux categorical    : {profile.auxiliary_categorical_columns}")
+    if profile.auxiliary_skipped_columns:
+        print(f"  Skipped aux cols   : {profile.auxiliary_skipped_columns}")
     print(f"  Empty / duplicate  : {profile.n_empty_texts} / {profile.duplicate_text_count}")
     print(f"  Avg chars / tokens : {profile.avg_char_length:.1f} / {profile.avg_token_length:.1f}")
     print(f"  Length range       : {profile.min_char_length} to {profile.max_char_length} chars")

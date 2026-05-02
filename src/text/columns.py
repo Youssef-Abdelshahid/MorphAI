@@ -1,125 +1,153 @@
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
-_ALIASES = {
-    "text": ["text", "sentence", "content", "document", "body", "review", "message", "utterance"],
-    "label": ["label", "class", "target", "category", "sentiment", "intent"],
-    "labels": ["labels", "tags", "multi_labels", "multilabel", "categories"],
-    "entities": ["entities", "entity_spans", "ner", "bio_tags", "tags"],
-    "tokens": ["tokens", "words"],
-    "pos_tags": ["pos_tags", "tags", "pos", "upos", "xpos"],
-    "entity1": ["entity1", "head", "subject", "source_entity", "arg1"],
-    "entity2": ["entity2", "tail", "object", "target_entity", "arg2"],
-    "relation": ["relation", "relation_label", "predicate", "rel_label"],
-    "text_a": ["text_a", "sentence1", "query", "question", "source_text"],
-    "text_b": ["text_b", "sentence2", "document", "candidate", "target_text"],
-    "similarity": ["similarity_score", "score", "label", "relevance", "is_similar"],
-    "query": ["query", "search_query"],
-    "document": ["document", "doc", "passage", "text"],
-    "id": ["id", "doc_id", "document_id"],
-    "relevance": ["relevance", "relevance_label", "is_relevant", "label"],
-    "source_text": ["source_text", "source", "article", "input_text", "document"],
-    "summary": ["summary", "target_summary", "reference_summary"],
-    "target_text": ["target_text", "target", "translation", "completion", "output_text"],
-    "source_language": ["source_language", "src_lang"],
-    "target_language": ["target_language", "tgt_lang"],
-    "context": ["context", "passage", "document"],
-    "question": ["question", "query"],
-    "answer": ["answer", "answers", "target_answer"],
-    "answer_start": ["answer_start", "start", "answer_offset"],
-    "prompt": ["prompt", "input", "instruction"],
-    "completion": ["completion", "target_text", "response", "output"],
-    "language_label": ["language", "lang", "language_label", "locale"],
+
+REQUIRED_COLUMN_KEYS = {
+    "classification_single": [("text", "text column"), ("label", "label column")],
+    "classification_multi": [("text", "text column")],
+    "ner": [("text", "text column"), ("entities", "entity annotations column")],
+    "pos": [("pos_tags", "POS tags column")],
+    "relation_extraction": [("text", "text column"), ("entity1", "entity 1 column"), ("entity2", "entity 2 column"), ("relation", "relation label column")],
+    "semantic_similarity": [],
+    "summarization": [("source_text", "source text column"), ("summary", "reference summary column")],
+    "question_answering": [("context", "context column"), ("question", "question column"), ("answer", "answer column")],
+    "text_generation": [("prompt", "prompt column"), ("completion", "completion / reference column")],
+    "topic_modeling": [("text", "text column")],
 }
+
+
+_SUPPORTED_COL_KEYS = {
+    "classification_single": {"text", "label"},
+    "classification_multi": {"text", "labels"},
+    "ner": {"text", "entities"},
+    "pos": {"text", "tokens", "pos_tags"},
+    "relation_extraction": {"text", "entity1", "entity2", "relation"},
+    "semantic_similarity": {"text_a", "text_b", "similarity", "query", "document", "relevance"},
+    "summarization": {"source_text", "summary"},
+    "question_answering": {"context", "question", "answer", "answer_start"},
+    "text_generation": {"prompt", "completion"},
+    "topic_modeling": {"text", "label"},
+}
+
+
+_TEXT_COL_KEYS = {
+    "text", "tokens", "source_text", "context", "question", "prompt",
+    "text_a", "text_b", "query", "document",
+}
+
+
+_ANNOTATION_COL_KEYS = {"entities", "pos_tags"}
 
 
 def _norm(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", str(name).strip().lower()).strip("_")
 
 
-def find_column(df: pd.DataFrame, aliases: List[str]) -> Optional[str]:
-    norm_map = {_norm(c): c for c in df.columns}
-    for alias in aliases:
-        n = _norm(alias)
-        if n in norm_map:
-            return norm_map[n]
-    for col in df.columns:
-        nc = _norm(col)
-        if any(_norm(alias) in nc for alias in aliases):
-            return col
-    return None
-
-
-def binary_label_columns(df: pd.DataFrame, exclude: Optional[List[str]] = None) -> List[str]:
-    excluded = set(exclude or [])
-    cols = []
-    for col in df.columns:
-        if col in excluded:
-            continue
-        nc = _norm(col)
-        if not (nc.startswith("label") or nc.startswith("class") or nc.startswith("tag") or nc.startswith("target")):
-            continue
-        vals = set(str(v).strip().lower() for v in df[col].dropna().unique())
-        if vals and vals.issubset({"0", "1", "true", "false", "yes", "no"}):
-            cols.append(col)
-    return cols
-
-
 def resolve_columns(df: pd.DataFrame, task_type: str, col_overrides: Optional[Dict[str, str]] = None) -> Dict[str, object]:
     task = (task_type or "").strip().lower()
-    c = {}
-    if task in {"classification_single", "topic_modeling"}:
-        c["text"] = find_column(df, _ALIASES["text"])
-        c["label"] = find_column(df, _ALIASES["label"])
-    elif task == "classification_multi":
-        c["text"] = find_column(df, _ALIASES["text"])
-        c["labels"] = find_column(df, _ALIASES["labels"])
-        c["binary_label_columns"] = binary_label_columns(df, [c.get("text"), c.get("labels")])
-    elif task == "ner":
-        c["text"] = find_column(df, _ALIASES["text"])
-        c["entities"] = find_column(df, _ALIASES["entities"])
-    elif task == "pos":
-        c["tokens"] = find_column(df, _ALIASES["tokens"])
-        c["pos_tags"] = find_column(df, _ALIASES["pos_tags"])
-        c["text"] = find_column(df, _ALIASES["text"])
-    elif task == "relation_extraction":
-        c["text"] = find_column(df, _ALIASES["text"])
-        c["entity1"] = find_column(df, _ALIASES["entity1"])
-        c["entity2"] = find_column(df, _ALIASES["entity2"])
-        c["relation"] = find_column(df, _ALIASES["relation"])
-    elif task == "semantic_similarity":
-        c["text_a"] = find_column(df, ["text_a", "sentence1", "text1", "left_text"])
-        c["text_b"] = find_column(df, ["text_b", "sentence2", "text2", "right_text"])
-        c["similarity"] = find_column(df, _ALIASES["similarity"])
-        c["query"] = find_column(df, _ALIASES["query"])
-        c["document"] = find_column(df, _ALIASES["document"])
-        c["id"] = find_column(df, _ALIASES["id"])
-        c["relevance"] = find_column(df, _ALIASES["relevance"])
-    elif task == "summarization":
-        c["source_text"] = find_column(df, _ALIASES["source_text"])
-        c["summary"] = find_column(df, _ALIASES["summary"])
-    elif task == "machine_translation":
-        c["source_text"] = find_column(df, _ALIASES["source_text"])
-        c["target_text"] = find_column(df, _ALIASES["target_text"])
-        c["source_language"] = find_column(df, _ALIASES["source_language"])
-        c["target_language"] = find_column(df, _ALIASES["target_language"])
-    elif task == "question_answering":
-        c["context"] = find_column(df, _ALIASES["context"])
-        c["question"] = find_column(df, _ALIASES["question"])
-        c["answer"] = find_column(df, _ALIASES["answer"])
-        c["answer_start"] = find_column(df, _ALIASES["answer_start"])
-    elif task == "text_generation":
-        c["prompt"] = find_column(df, _ALIASES["prompt"])
-        c["completion"] = find_column(df, _ALIASES["completion"])
-    elif task == "language_detection":
-        c["text"] = find_column(df, _ALIASES["text"])
-        c["language_label"] = find_column(df, _ALIASES["language_label"])
-    if col_overrides:
-        for key, col_name in col_overrides.items():
-            if col_name and col_name in df.columns:
-                c[key] = col_name
+    c: Dict[str, object] = {}
+    if not col_overrides:
+        return c
+    supported = _SUPPORTED_COL_KEYS.get(task, set())
+    norm_map = {_norm(col): col for col in df.columns}
+    for key, raw_value in col_overrides.items():
+        if key == "binary_label_columns":
+            if isinstance(raw_value, list):
+                resolved = []
+                for entry in raw_value:
+                    name = str(entry).strip()
+                    if not name:
+                        continue
+                    if name in df.columns:
+                        resolved.append(name)
+                    elif _norm(name) in norm_map:
+                        resolved.append(norm_map[_norm(name)])
+                if resolved:
+                    c["binary_label_columns"] = resolved
+            continue
+        if key not in supported:
+            continue
+        name = str(raw_value or "").strip()
+        if not name:
+            continue
+        if name in df.columns:
+            c[key] = name
+        elif _norm(name) in norm_map:
+            c[key] = norm_map[_norm(name)]
     return c
+
+
+def primary_text_column_keys(task_type: str) -> List[str]:
+    task = (task_type or "").strip().lower()
+    if task in {"classification_single", "classification_multi", "ner", "pos", "relation_extraction", "topic_modeling"}:
+        return ["text"]
+    if task == "semantic_similarity":
+        return ["text_a", "text_b", "query", "document"]
+    if task == "summarization":
+        return ["source_text"]
+    if task == "question_answering":
+        return ["context", "question"]
+    if task == "text_generation":
+        return ["prompt"]
+    return []
+
+
+def reserved_columns(cols: Dict[str, object]) -> List[str]:
+    used = set()
+    for key, value in cols.items():
+        if key == "binary_label_columns":
+            for c in value or []:
+                used.add(c)
+        elif isinstance(value, str):
+            used.add(value)
+    return sorted(used)
+
+
+def _is_id_like(name: str) -> bool:
+    n = _norm(name)
+    return n in {"id", "row_id", "uuid", "guid", "index"} or n.endswith("_id") or n.startswith("id_")
+
+
+def detect_auxiliary_features(
+    df: pd.DataFrame,
+    cols: Dict[str, object],
+    explicit_aux: Optional[List[str]] = None,
+    max_categorical_cardinality: int = 50,
+) -> Tuple[List[str], List[str], List[str]]:
+    used = set(reserved_columns(cols))
+    norm_map = {_norm(col): col for col in df.columns}
+
+    if explicit_aux:
+        candidates: List[str] = []
+        for raw in explicit_aux:
+            name = str(raw).strip()
+            if not name:
+                continue
+            actual = name if name in df.columns else norm_map.get(_norm(name))
+            if actual and actual not in used and actual not in candidates:
+                candidates.append(actual)
+    else:
+        candidates = [c for c in df.columns if c not in used and not _is_id_like(c)]
+
+    numeric: List[str] = []
+    categorical: List[str] = []
+    skipped: List[str] = []
+    for col in candidates:
+        series = df[col]
+        if pd.api.types.is_numeric_dtype(series) and not pd.api.types.is_bool_dtype(series):
+            numeric.append(col)
+            continue
+        coerced = pd.to_numeric(series, errors="coerce")
+        if coerced.notna().mean() >= 0.9 and not pd.api.types.is_datetime64_any_dtype(series):
+            numeric.append(col)
+            continue
+        nunique = series.dropna().astype(str).nunique()
+        if 1 <= nunique <= max_categorical_cardinality:
+            categorical.append(col)
+        else:
+            skipped.append(col)
+    return numeric, categorical, skipped

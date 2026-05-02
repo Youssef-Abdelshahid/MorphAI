@@ -5,7 +5,7 @@ import io
 import math
 import queue
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from src.shared.selector import select_best
 from src.text.columns import resolve_columns
@@ -15,7 +15,7 @@ from src.text.memory_manager import TextMemoryManager
 from src.text.meta_learner import TextMetaLearner
 from src.text.output_writer import save_processed_dataset as save_text_processed_dataset
 from src.text.pipeline_generator import generate_pipelines as generate_text_pipelines
-from src.text.profiler import profile_text_dataset, remove_empty_and_nonenglish_rows
+from src.text.profiler import LANGUAGE_FILTER_METHOD, compute_emoji_stats, profile_text_dataset, remove_empty_and_nonenglish_rows
 from src.text.reporter import generate_report as generate_text_report, print_profile_summary as print_text_profile_summary, save_report as save_text_report
 from src.text.validator import load_text_dataframe, validate_text_file, validate_text_run
 
@@ -34,6 +34,9 @@ class TextAgentWorker:
         text_source: str = "",
         text_length: str = "",
         col_overrides: Optional[Dict[str, str]] = None,
+        auxiliary_feature_columns: Optional[List[str]] = None,
+        multilabel_format: str = "single_column",
+        binary_label_columns: Optional[List[str]] = None,
     ) -> None:
         self.q = q
         self.data_path = data_path
@@ -46,6 +49,9 @@ class TextAgentWorker:
         self.text_source = text_source
         self.text_length = text_length
         self.col_overrides = col_overrides or {}
+        self.auxiliary_feature_columns = list(auxiliary_feature_columns or [])
+        self.multilabel_format = multilabel_format or "single_column"
+        self.binary_label_columns = list(binary_label_columns or [])
 
     def run(self) -> None:
         try:
@@ -67,6 +73,9 @@ class TextAgentWorker:
             self.text_source,
             self.text_length,
             col_overrides=self.col_overrides or None,
+            auxiliary_feature_columns=list(self.auxiliary_feature_columns),
+            multilabel_format=self.multilabel_format,
+            binary_label_columns=list(self.binary_label_columns),
         )
         tc = config.task_context()
         self._sep()
@@ -95,14 +104,27 @@ class TextAgentWorker:
             self.q.put({"kind": "fail", "text": "Validation failed: " + "; ".join(val_errors)})
             return
         self._log("OK", "  Validation passed.")
+
+        effective_overrides: Dict[str, object] = dict(config.col_overrides or {})
+        if config.task_type == "classification_multi" and config.binary_label_columns:
+            effective_overrides["binary_label_columns"] = list(config.binary_label_columns)
+
         self._step("[2c/9] Filtering empty and non-English rows ...")
-        effective_overrides = config.col_overrides or {}
         cols = resolve_columns(df, config.task_type, col_overrides=effective_overrides)
-        df, n_removed_invalid, n_removed_nonenglish = remove_empty_and_nonenglish_rows(df, cols, config.task_type)
+        df, filter_counts = remove_empty_and_nonenglish_rows(df, cols, config.task_type)
+        n_removed_invalid = filter_counts.get("removed_empty_or_invalid", 0)
+        n_removed_nonenglish = filter_counts.get("removed_non_english", 0)
+        n_removed_uncertain = filter_counts.get("removed_language_uncertain", 0)
+        n_removed_noisy = filter_counts.get("removed_too_noisy", 0)
+        self._log("INFO", f"  Language filter: {LANGUAGE_FILTER_METHOD}")
         if n_removed_invalid:
             self._log("INFO", f"  Removed {n_removed_invalid:,} empty or invalid row(s).")
         if n_removed_nonenglish:
             self._log("INFO", f"  Removed {n_removed_nonenglish:,} non-English row(s).")
+        if n_removed_uncertain:
+            self._log("INFO", f"  Removed {n_removed_uncertain:,} language-uncertain row(s).")
+        if n_removed_noisy:
+            self._log("INFO", f"  Removed {n_removed_noisy:,} noise-dominated row(s).")
         if df.empty:
             msg = "All rows were removed during filtering. The dataset does not contain valid English text for this task."
             self._log("ERROR", f"  {msg}")
@@ -114,9 +136,13 @@ class TextAgentWorker:
             df,
             config.task_type,
             col_overrides=effective_overrides,
+            auxiliary_feature_columns=list(config.auxiliary_feature_columns or []),
             original_row_count=original_count,
             removed_empty_or_invalid_count=n_removed_invalid,
             removed_non_english_count=n_removed_nonenglish,
+            removed_language_uncertain_count=n_removed_uncertain,
+            removed_too_noisy_count=n_removed_noisy,
+            language_filter_method=LANGUAGE_FILTER_METHOD,
         )
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
@@ -125,6 +151,8 @@ class TextAgentWorker:
             if line.strip():
                 self._log("INFO", line)
         self._log("OK", f"  {profile.n_samples:,} structured text sample(s).")
+        if profile.has_tabular_features:
+            self._log("INFO", f"  Detected {len(profile.auxiliary_numeric_columns)} numeric and {len(profile.auxiliary_categorical_columns)} categorical auxiliary feature(s).")
         self._step("[4/9] Loading meta-learner ...")
         meta = TextMetaLearner()
         meta.load()
@@ -147,6 +175,10 @@ class TextAgentWorker:
             "imbalance_ratio": profile.imbalance_ratio,
             "annotation_invalid_ratio": profile.annotation_validity.get("invalid_count", 0) / max(profile.n_samples, 1),
             "source_target_length_ratio": profile.source_target_length_ratio,
+            "has_tabular_features": profile.has_tabular_features,
+            "num_extra_numeric_cols": len(profile.auxiliary_numeric_columns),
+            "num_extra_categorical_cols": len(profile.auxiliary_categorical_columns),
+            "extra_feature_missing_ratio": profile.extra_feature_missing_ratio,
             "original_row_count": profile.original_row_count,
             "removed_empty_or_invalid_count": profile.removed_empty_or_invalid_count,
             "removed_non_english_count": profile.removed_non_english_count,
@@ -189,6 +221,12 @@ class TextAgentWorker:
         self._log("BEST", f"  > normalized score = {bs:.4f}  (+/- {sd:.4f})")
         self._step("[9/9] Saving cleaned text dataset ...")
         cleaned_path, cleaned_shape = save_text_processed_dataset(best["spec"], df, profile, config)
+        if profile.primary_text_columns and profile.primary_text_columns[0] in df.columns:
+            emoji_stats = compute_emoji_stats(df[profile.primary_text_columns[0]].fillna(""), best["spec"].emoji_handling)
+            profile.emoji_strategy = best["spec"].emoji_handling
+            profile.emoji_translated_count = int(emoji_stats["emoji_translated_count"])
+            profile.emoji_removed_count = int(emoji_stats["emoji_removed_count"])
+            profile.removed_excessive_emoji_count = int(emoji_stats["removed_excessive_emoji_count"])
         self._log("OK", f"  {cleaned_path}")
         self._step("[9/9] Saving report, updating memory and meta-learner ...")
         ms_final = meta.status_summary()
@@ -227,7 +265,8 @@ class TextAgentWorker:
             "quality_info": (
                 f"empty={profile.n_empty_texts}, duplicate={profile.duplicate_text_count}, "
                 f"noise={profile.noise_ratio:.2%}, removed_invalid={n_removed_invalid}, "
-                f"removed_non_english={n_removed_nonenglish}"
+                f"removed_non_english={n_removed_nonenglish}, "
+                f"removed_uncertain={n_removed_uncertain}, removed_noisy={n_removed_noisy}"
             ),
             "imbalance_ratio": round(ir, 2) if math.isfinite(ir) else 999.9,
             "task_context": tc,
@@ -237,6 +276,7 @@ class TextAgentWorker:
             "original_row_count": original_count,
             "removed_empty_or_invalid_count": n_removed_invalid,
             "removed_non_english_count": n_removed_nonenglish,
+            "fusion_used": bool(best.get("evaluator_details", {}).get("fusion_used", False)),
         })
 
     def _log(self, level: str, text: str) -> None:

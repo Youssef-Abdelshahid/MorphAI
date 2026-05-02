@@ -7,17 +7,18 @@ import numpy as np
 
 MEMORY_DIR = Path("memory") / "text"
 META_LEARNER_FILE = MEMORY_DIR / "meta_learner.pkl"
-_SCORE_SYSTEM = "normalized_text_v1"
+_SCORE_SYSTEM = "normalized_text_v2"
 
 MIN_RUNS_TO_USE = 5
 MIN_RUNS_FULL_WEIGHT = 20
 MAX_META_WEIGHT = 0.25
 
-_TASKS = ["classification_single", "classification_multi", "ner", "pos", "relation_extraction", "semantic_similarity", "summarization", "machine_translation", "question_answering", "text_generation", "topic_modeling", "language_detection", "other"]
+_TASKS = ["classification_single", "classification_multi", "ner", "pos", "relation_extraction", "semantic_similarity", "summarization", "question_answering", "text_generation", "topic_modeling", "other"]
 _TASK_MAP = {name: i for i, name in enumerate(_TASKS)}
 _REP_MAP = {"raw_text": 0, "tfidf_word": 1, "tfidf_char": 2, "tfidf_char_word": 3, "token_sequence": 4}
 _PUNCT_MAP = {"keep": 0, "space": 1, "remove": 2}
 _NUM_MAP = {"keep": 0, "replace": 1, "remove": 2}
+_FUSION_MAP = {"text_only": 0, "concatenate_text_tabular": 1}
 
 
 def _encode_task(task_type: str) -> float:
@@ -37,6 +38,10 @@ def _profile_features(summary: dict) -> List[float]:
         min(float(summary.get("imbalance_ratio", 1.0)), 50.0) / 50.0,
         float(summary.get("annotation_invalid_ratio", 0.0)),
         min(float(summary.get("source_target_length_ratio", 0.0)), 5.0) / 5.0,
+        float(bool(summary.get("has_tabular_features", False))),
+        min(float(summary.get("num_extra_numeric_cols", 0)), 50.0) / 50.0,
+        min(float(summary.get("num_extra_categorical_cols", 0)), 50.0) / 50.0,
+        float(summary.get("extra_feature_missing_ratio", 0.0)),
     ]
 
 
@@ -53,6 +58,7 @@ def _pipeline_features(pipeline: dict) -> List[float]:
         min(float(pipeline.get("min_df", 1)), 10.0) / 10.0,
         _REP_MAP.get(pipeline.get("representation", "tfidf_word"), 1) / max(len(_REP_MAP) - 1, 1),
         float(pipeline.get("imbalance", "none") != "none"),
+        _FUSION_MAP.get(pipeline.get("fusion_strategy", "text_only"), 0) / max(len(_FUSION_MAP) - 1, 1),
     ]
 
 

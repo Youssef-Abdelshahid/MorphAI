@@ -1,9 +1,10 @@
 from typing import Any, Dict, List, Optional, Tuple
 
+from .config import TABULAR_FUSION_COMPATIBLE
 from .preprocessing import TextPipelineSpec
 from .profiler import TextProfile
 
-_MAX_PIPELINES = 12
+_MAX_PIPELINES = 14
 
 
 def _deduplicate(pipelines: List[TextPipelineSpec]) -> List[TextPipelineSpec]:
@@ -38,9 +39,27 @@ def _apply_constraints(spec: TextPipelineSpec, constraints: List[str]) -> TextPi
 
 def _matches_bad_pattern(spec: TextPipelineSpec, bad_specs: List[TextPipelineSpec]) -> bool:
     for bad in bad_specs:
-        if spec.representation == bad.representation and spec.lowercase == bad.lowercase and spec.stopword_removal == bad.stopword_removal and spec.punctuation_handling == bad.punctuation_handling:
+        if (spec.representation == bad.representation
+                and spec.lowercase == bad.lowercase
+                and spec.stopword_removal == bad.stopword_removal
+                and spec.punctuation_handling == bad.punctuation_handling
+                and spec.fusion_strategy == bad.fusion_strategy):
             return True
     return False
+
+
+def _make_spec(
+    lowercase, clean, emoji, punct, num, ws, stop, norm, tok, maxlen, mindf, repr_, imb,
+    fusion="text_only", num_imp="mean", num_sc="standard", cat_enc="onehot",
+) -> TextPipelineSpec:
+    return TextPipelineSpec(
+        lowercase=lowercase, clean_urls_emails_html=clean, emoji_handling=emoji,
+        punctuation_handling=punct, number_normalization=num, whitespace_normalization=ws,
+        stopword_removal=stop, normalization_strategy=norm, tokenization_strategy=tok,
+        max_sequence_length=maxlen, min_df=mindf, representation=repr_, imbalance=imb,
+        fusion_strategy=fusion, numeric_imputation=num_imp, numeric_scaling=num_sc,
+        categorical_encoding=cat_enc,
+    )
 
 
 def generate_pipelines(
@@ -58,25 +77,68 @@ def generate_pipelines(
     task_type = tc.get("task_type", profile.task_type)
     sequence_labeling = task_type in {"ner", "pos"}
     seq2seq = task_type in {"summarization", "question_answering", "text_generation", "semantic_similarity"}
-    classification_like = task_type in {"classification_single", "classification_multi", "relation_extraction", "language_detection"}
+    classification_like = task_type in {"classification_single", "classification_multi", "relation_extraction"}
     noisy = profile.noise_ratio > 0.1
     long_text = profile.avg_token_length > 300
     imbalance = "class_weight" if classification_like and profile.imbalance_ratio > 1.5 else "none"
-    baseline = TextPipelineSpec(False if sequence_labeling else True, noisy, "keep" if sequence_labeling else "remove", "keep", "keep", True, False, "none", "word", 512 if long_text else 256, 1, "tfidf_word", imbalance)
-    candidates.append(baseline)
-    candidates.append(TextPipelineSpec(False if sequence_labeling else True, noisy, "remove", "remove" if classification_like else "keep", "replace" if classification_like else "keep", True, classification_like and not seq2seq, "none", "word", 256, 1, "tfidf_word", imbalance))
-    candidates.append(TextPipelineSpec(False, noisy, "keep", "keep", "keep", True, False, "none", "word", 512, 1, "tfidf_char", imbalance))
-    candidates.append(TextPipelineSpec(False if sequence_labeling else True, True, "describe", "space", "replace", True, False, "none", "word", 512, 2, "tfidf_word", imbalance))
-    candidates.append(TextPipelineSpec(False, False, "keep", "keep", "keep", True, False, "none", "word", 100000 if seq2seq else 512, 1, "raw_text", "none"))
-    if classification_like or task_type == "topic_modeling":
-        candidates.append(TextPipelineSpec(True, True, "remove", "remove", "replace", True, True, "stem", "word", 256, 2, "tfidf_word", imbalance))
-        candidates.append(TextPipelineSpec(True, True, "remove", "keep", "replace", True, False, "none", "char_word", 256, 2, "tfidf_char_word", imbalance))
-    if task_type == "topic_modeling":
-        candidates.append(TextPipelineSpec(True, True, "remove", "remove", "replace", True, True, "none", "word", 512, 2, "tfidf_word", "none"))
+
+    fusion_eligible = task_type in TABULAR_FUSION_COMPATIBLE and profile.has_tabular_features and not sequence_labeling
+
     if sequence_labeling:
-        candidates.append(TextPipelineSpec(False, False, "keep", "keep", "keep", False, False, "none", "pretokenized", 100000, 1, "token_sequence", "none"))
+        default_emoji = "preserve"
+    elif seq2seq:
+        default_emoji = "preserve"
+    elif task_type == "topic_modeling":
+        default_emoji = "remove"
+    else:
+        default_emoji = "limit_then_translate"
+
+    baseline = _make_spec(
+        False if sequence_labeling else True, noisy,
+        default_emoji, "keep", "keep", True, False, "none", "word",
+        512 if long_text else 256, 1, "tfidf_word", imbalance,
+    )
+    candidates.append(baseline)
+    candidates.append(_make_spec(
+        False if sequence_labeling else True, noisy,
+        "remove" if task_type == "topic_modeling" else default_emoji,
+        "remove" if classification_like else "keep",
+        "replace" if classification_like else "keep",
+        True, classification_like and not seq2seq, "none", "word", 256, 1, "tfidf_word", imbalance,
+    ))
+    candidates.append(_make_spec(False, noisy, "preserve" if sequence_labeling else "keep", "keep", "keep", True, False, "none", "word", 512, 1, "tfidf_char", imbalance))
+    candidates.append(_make_spec(False if sequence_labeling else True, True, "translate_to_text" if not sequence_labeling else "preserve", "space", "replace", True, False, "none", "word", 512, 2, "tfidf_word", imbalance))
+    candidates.append(_make_spec(False, False, "keep", "keep", "keep", True, False, "none", "word", 100000 if seq2seq else 512, 1, "raw_text", "none"))
+    if classification_like or task_type == "topic_modeling":
+        candidates.append(_make_spec(True, True, "remove", "remove", "replace", True, True, "stem", "word", 256, 2, "tfidf_word", imbalance))
+        candidates.append(_make_spec(True, True, "remove", "keep", "replace", True, False, "none", "char_word", 256, 2, "tfidf_char_word", imbalance))
+    if task_type == "topic_modeling":
+        candidates.append(_make_spec(True, True, "remove", "remove", "replace", True, True, "none", "word", 512, 2, "tfidf_word", "none"))
+    if sequence_labeling:
+        candidates.append(_make_spec(False, False, "keep", "keep", "keep", False, False, "none", "pretokenized", 100000, 1, "token_sequence", "none"))
     if seq2seq:
-        candidates.append(TextPipelineSpec(False, noisy, "keep", "keep", "keep", True, False, "none", "word", 100000, 1, "raw_text", "none"))
+        candidates.append(_make_spec(False, noisy, "keep", "keep", "keep", True, False, "none", "word", 100000, 1, "raw_text", "none"))
+
+    if fusion_eligible:
+        fusion_variants: List[TextPipelineSpec] = []
+        for src in [baseline, candidates[1]] if len(candidates) > 1 else [baseline]:
+            d = src.to_dict()
+            d["fusion_strategy"] = "concatenate_text_tabular"
+            d["numeric_imputation"] = "mean"
+            d["numeric_scaling"] = "standard"
+            d["categorical_encoding"] = "onehot"
+            fusion_variants.append(TextPipelineSpec.from_dict(d))
+        d2 = baseline.to_dict()
+        d2.update({
+            "fusion_strategy": "concatenate_text_tabular",
+            "numeric_imputation": "median",
+            "numeric_scaling": "robust",
+            "categorical_encoding": "ordinal",
+        })
+        fusion_variants.append(TextPipelineSpec.from_dict(d2))
+        candidates.extend(fusion_variants)
+        messages.append(f"Generated {len(fusion_variants)} text+tabular fusion candidate(s) using detected auxiliary features.")
+
     if bad_cases:
         bad_specs = []
         for case in bad_cases:
