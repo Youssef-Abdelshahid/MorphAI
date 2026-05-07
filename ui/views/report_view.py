@@ -276,8 +276,11 @@ class ReportViewMixin:
         if cfg.get("target") and not (is_image or is_audio or is_text):
             kv_row(c, "Target column",     cfg.get("target", "—"))
         kv_row(c, "Priority metric",   metric_label_fn(metric))
-        if report.get("modality"):
-            kv_row(c, "Modality",      report.get("modality"))
+        modality_val = report.get("modality") or "Tabular"
+        kv_row(c, "Modality",          modality_val)
+        input_format_val = cfg.get("input_format") or tc.get("input_format", "")
+        if input_format_val:
+            kv_row(c, "Input format",  input_format_val)
         kv_row(c, "Pipelines tested",  str(report.get("pipelines_tested", "—")))
         kv_row(c, "Models / pipeline", str(report.get("n_models", "—")))
 

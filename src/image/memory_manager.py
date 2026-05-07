@@ -13,7 +13,7 @@ META_LEARNER_FILE = MEMORY_DIR / "meta_learner.pkl"
 
 _SIMILARITY_THRESHOLD = 0.60
 GOOD_SCORE_THRESHOLD = 0.60
-_MEMORY_SCHEMA_VERSION = 2
+_MEMORY_SCHEMA_VERSION = 3
 _SCORE_SYSTEM = "normalized_v2"
 
 
@@ -226,12 +226,18 @@ class ImageMemoryManager:
         )
 
         now = datetime.now()
+        input_format = getattr(profile, "input_format", "") or "image_folder_zip"
+        annotation_profile = dict(getattr(profile, "annotation_profile", {}) or {})
+        parsing_summary = dict(getattr(profile, "parsing_summary", {}) or {})
+        class_mapping = {str(k): v for k, v in (getattr(profile, "class_mapping", {}) or {}).items()}
         record: Dict[str, Any] = {
             "id": now.strftime("%Y%m%d_%H%M%S_%f"),
             "timestamp": now.isoformat(),
             "schema_version": _MEMORY_SCHEMA_VERSION,
             "score_system": _SCORE_SYSTEM,
             "dataset": ds_name,
+            "modality": "image",
+            "input_format": input_format,
             "metric_priority": config.metric,
             "task_type": config.task_type,
             "selected_metric": selected_metric,
@@ -241,6 +247,9 @@ class ImageMemoryManager:
             "evaluator_details": best.get("evaluator_details", {}),
             "task_context": config.task_context(),
             "profile_summary": profile_summary,
+            "annotation_profile": annotation_profile,
+            "parsing_summary": parsing_summary,
+            "class_mapping": class_mapping,
             "all_pipelines_tested": all_pipelines,
             "pipelines_tested": len(results),
             "best_pipeline": bp_dict,

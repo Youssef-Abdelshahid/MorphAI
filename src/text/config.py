@@ -133,6 +133,7 @@ class TextConfig:
     constraints: str = ""
     notes: str = ""
     modality: str = "Text"
+    input_format: str = ""
     language: str = ""
     text_source: str = ""
     text_length: str = ""
@@ -169,6 +170,7 @@ class TextConfig:
             "active_constraints": self.active_constraints,
             "notes": self.notes,
             "modality": self.modality,
+            "input_format": self.input_format,
             "language": self.language,
             "text_source": self.text_source,
             "text_length": self.text_length,

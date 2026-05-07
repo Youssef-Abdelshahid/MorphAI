@@ -8,7 +8,6 @@ import shutil
 import tempfile
 import zipfile
 from pathlib import Path
-import pandas as pd
 
 from src.tabular.config import Config
 from src.tabular.executor import evaluate_pipeline
@@ -18,8 +17,9 @@ from src.tabular.output_writer import save_cleaned_dataset
 from src.tabular.pipeline_generator import generate_pipelines
 from src.tabular.profiler import profile_dataset
 from src.tabular.reporter import generate_report, print_profile_summary, save_report
-from src.tabular.validator import validate_csv_run
-from src.shared.selector import select_best
+from src.tabular.validator import validate_csv_run, validate_input_file
+from src.utils.shared.selector import select_best
+from src.utils.ingestion.tabular import get_tabular_adapter
 
 from src.image.config import ImageConfig
 from src.image.executor import evaluate_pipeline as evaluate_image_pipeline
@@ -33,7 +33,17 @@ from src.image.reporter import (
     print_profile_summary as print_image_profile_summary,
     save_report as save_image_report,
 )
-from src.image.validator import validate_image_run, validate_image_zip
+from src.image.validator import validate_image_run, validate_image_zip, validate_internal_dataset
+from src.utils.ingestion.image import (
+    get_image_adapter,
+    materialize_for_pipeline,
+    has_bboxes as ds_has_bboxes,
+    has_masks as ds_has_masks,
+    has_keypoints as ds_has_keypoints,
+    has_text_labels as ds_has_text_labels,
+    has_depth_targets as ds_has_depth_targets,
+    has_class_label as ds_has_class_labels,
+)
 
 _IMG_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"}
 
@@ -86,7 +96,10 @@ class AgentWorker:
         domain:            str = "",
         constraints:       str = "",
         notes:             str = "",
-        modality:          str = "CSV / Tabular",
+        modality:          str = "Tabular",
+        input_format:      str = "",
+        input_format_key:  str = "",
+        record_path:       str = "",
         fe_budget:         str = "",
         data_quality:      str = "",
     ) -> None:
@@ -99,6 +112,9 @@ class AgentWorker:
         self.constraints       = constraints
         self.notes             = notes
         self.modality          = modality
+        self.input_format      = input_format
+        self.input_format_key  = input_format_key
+        self.record_path       = record_path
         self.fe_budget         = fe_budget
         self.data_quality      = data_quality
 
@@ -126,6 +142,9 @@ class AgentWorker:
             constraints=self.constraints,
             notes=self.notes,
             modality=self.modality,
+            input_format=self.input_format,
+            input_format_key=self.input_format_key,
+            record_path=self.record_path,
             fe_budget=self.fe_budget,
             data_quality=self.data_quality,
         )
@@ -149,11 +168,54 @@ class AgentWorker:
         self._sep()
 
         self._step("[1/9] Loading dataset ...")
-        df = pd.read_csv(csv_path)
-        if target not in df.columns and config.supervision == "supervised":
-            self._log("ERROR", f"Column '{target}' not found.")
-            self._log("ERROR", f"Available: {list(df.columns)}")
-            q.put({"kind": "fail", "text": f"Target column '{target}' not found."})
+        format_key = self.input_format_key or "csv_excel"
+
+        ext_errors = validate_input_file(config)
+        if ext_errors:
+            for err in ext_errors:
+                self._log("ERROR", f"  {err}")
+            q.put({"kind": "fail", "text": "; ".join(ext_errors)})
+            return
+
+        adapter = get_tabular_adapter(format_key)
+        if adapter is None:
+            self._log("ERROR", f"Unsupported tabular input format '{format_key}'.")
+            q.put({"kind": "fail", "text": f"Unsupported tabular input format '{format_key}'."})
+            return
+
+        self._log("INFO", f"  Format : {self.input_format or format_key}")
+        ingest_result = adapter.to_internal_dataset(csv_path, record_path=self.record_path)
+        if not ingest_result.ok:
+            for err in (ingest_result.errors or [ingest_result.message]):
+                self._log("ERROR", f"  {err}")
+            q.put({"kind": "fail", "text": ingest_result.message or "Failed to ingest input file."})
+            return
+
+        df = ingest_result.data["dataframe"]
+        structure_profile = ingest_result.data.get("structure_profile", {})
+        parsing_summary = ingest_result.data.get("parsing_summary", {})
+        parser_warnings = ingest_result.data.get("warnings", []) or []
+
+        if df is None or df.empty:
+            q.put({"kind": "fail", "text": "Parsed dataset is empty."})
+            return
+
+        if structure_profile.get("detected_record_path"):
+            self._log("INFO", f"  Record path  : {structure_profile['detected_record_path']}")
+        if structure_profile.get("flattened_column_count"):
+            self._log("INFO", f"  Flat columns : {structure_profile['flattened_column_count']}")
+        if parser_warnings:
+            for w in parser_warnings[:5]:
+                self._log("WARN", f"  parser: {w}")
+
+        if target and target not in df.columns and config.supervision == "supervised":
+            cols = list(df.columns)
+            similar = [c for c in cols if target.lower() in c.lower() or c.lower() in target.lower()]
+            self._log("ERROR", f"Target column '{target}' not found after parsing/flattening.")
+            if similar:
+                self._log("ERROR", f"  Did you mean: {similar[:5]}")
+            self._log("ERROR", f"  Available: {cols[:30]}{'...' if len(cols) > 30 else ''}")
+            q.put({"kind": "fail", "text": f"Target column '{target}' not found in parsed data."})
             return
         n_before = len(df)
         if target in df.columns:
@@ -290,7 +352,10 @@ class AgentWorker:
 
         self._step("[8/9] Saving cleaned dataset ...")
         cleaned_path, cleaned_shape = save_cleaned_dataset(
-            best["spec"], df.copy(), profile, config
+            best["spec"], df.copy(), profile, config,
+            structure_profile=structure_profile,
+            parsing_summary=parsing_summary,
+            parser_warnings=parser_warnings,
         )
         self._log("OK", f"  {cleaned_path}")
         self._log("INFO",
@@ -302,6 +367,9 @@ class AgentWorker:
             profile, results, best, config,
             meta_status=ms_final,
             mem_influence=mem_influence,
+            structure_profile=structure_profile,
+            parsing_summary=parsing_summary,
+            parser_warnings=parser_warnings,
         )
         report_path  = save_report(report)
 
@@ -309,6 +377,8 @@ class AgentWorker:
             profile, config, results, best,
             meta_status=ms_final,
             mem_influence=mem_influence,
+            structure_profile=structure_profile,
+            parsing_summary=parsing_summary,
         )
         memory.save()
         self._log("OK", f"  Report : {report_path}")
@@ -389,6 +459,14 @@ class ImageAgentWorker:
         notes:        str = "",
         image_format: str = "",
         color_space:  str = "",
+        input_format: str = "",
+        input_format_key: str = "",
+        annotation_path: str = "",
+        image_dir: str = "",
+        annotation_dir: str = "",
+        label_dir: str = "",
+        class_config: str = "",
+        split_selection: str = "",
     ) -> None:
         self.q            = q
         self.zip_path     = zip_path
@@ -399,6 +477,14 @@ class ImageAgentWorker:
         self.notes        = notes
         self.image_format = image_format
         self.color_space  = color_space
+        self.input_format = input_format
+        self.input_format_key = input_format_key or "zip_folder"
+        self.annotation_path = annotation_path
+        self.image_dir = image_dir
+        self.annotation_dir = annotation_dir
+        self.label_dir = label_dir
+        self.class_config = class_config
+        self.split_selection = split_selection
 
     def run(self) -> None:
         try:
@@ -422,6 +508,7 @@ class ImageAgentWorker:
             constraints=self.constraints,
             notes=self.notes,
             modality="Image",
+            input_format=self.input_format,
             image_format=self.image_format,
             color_space=self.color_space,
         )
@@ -431,6 +518,8 @@ class ImageAgentWorker:
         self._log("INFO", f"Dataset : {zip_path.name}")
         self._log("INFO", f"Modality: Image")
         self._log("INFO", f"Metric  : {metric}")
+        if self.input_format:
+            self._log("INFO", f"Input fmt: {self.input_format}")
         if tc.get("task_type"):
             self._log("INFO", f"Task    : {tc['task_type']}")
         if tc.get("domain"):
@@ -453,16 +542,51 @@ class ImageAgentWorker:
             return
         self._log("OK", "  Archive is valid.")
 
+        adapter = get_image_adapter(self.input_format_key)
+        if adapter is None:
+            self._log("ERROR", f"Unsupported image input format: '{self.input_format_key}'.")
+            q.put({"kind": "fail", "text": f"Unsupported image input format: '{self.input_format_key}'."})
+            return
+
         tmp_dir = tempfile.mkdtemp(prefix="morphai_img_")
         try:
-            self._step("[1b/9] Extracting zip archive ...")
-            with zipfile.ZipFile(str(zip_path), "r") as zf:
-                zf.extractall(tmp_dir)
-            dataset_root = _find_dataset_root(Path(tmp_dir))
-            self._log("OK", f"  Extracted to temporary working directory.")
+            self._step("[1b/9] Parsing input format and building internal dataset ...")
+            parse_kwargs = {}
+            if self.input_format_key == "coco":
+                if self.annotation_path:
+                    parse_kwargs["annotation_path"] = self.annotation_path
+                if self.image_dir:
+                    parse_kwargs["image_dir"] = self.image_dir
+            elif self.input_format_key == "pascal_voc":
+                if self.image_dir:
+                    parse_kwargs["image_dir"] = self.image_dir
+                if self.annotation_dir:
+                    parse_kwargs["annotation_dir"] = self.annotation_dir
+            elif self.input_format_key == "yolo":
+                if self.image_dir:
+                    parse_kwargs["image_dir"] = self.image_dir
+                if self.label_dir:
+                    parse_kwargs["label_dir"] = self.label_dir
+                if self.class_config:
+                    parse_kwargs["class_config"] = self.class_config
+            if self.split_selection:
+                parse_kwargs["split"] = self.split_selection
 
-            self._step("[2/9] Validating extracted dataset structure ...")
-            val_errors = validate_image_run(config, dataset_root)
+            extract_dir = Path(tmp_dir) / "extracted"
+            adapter_result = adapter.to_internal_dataset(zip_path, work_dir=extract_dir, **parse_kwargs)
+            if not adapter_result.ok:
+                for err in (adapter_result.errors or [adapter_result.message]):
+                    self._log("ERROR", f"  {err}")
+                q.put({"kind": "fail", "text": adapter_result.message or "Failed to parse image input format."})
+                return
+            internal_dataset = adapter_result.data["internal_dataset"]
+            n_parsed = len(internal_dataset.samples)
+            self._log("OK", f"  Parsed {n_parsed} image(s) via {self.input_format or self.input_format_key} adapter.")
+            for w in (internal_dataset.warnings or [])[:5]:
+                self._log("WARN", f"  parser: {w}")
+
+            self._step("[2/9] Validating internal image dataset against task ...")
+            val_errors = validate_internal_dataset(config, internal_dataset)
             if val_errors:
                 for err in val_errors:
                     self._log("ERROR", f"  {err}")
@@ -470,8 +594,24 @@ class ImageAgentWorker:
                 return
             self._log("OK", "  Validation passed.")
 
+            self._step("[2b/9] Materializing internal dataset for pipeline ...")
+            materialized = Path(tmp_dir) / "materialized"
+            dataset_root = materialize_for_pipeline(internal_dataset, materialized, self.task_type)
+            self._log("OK", "  Internal dataset prepared for pipeline.")
+
             self._step("[3/9] Profiling image dataset ...")
             profile = profile_image_dataset(dataset_root)
+            profile.input_format = self.input_format_key
+            profile.parsing_summary = dict(internal_dataset.parsing_summary or {})
+            profile.annotation_profile = dict(internal_dataset.annotation_profile or {})
+            profile.structure_profile = dict(internal_dataset.structure_profile or {})
+            profile.parser_warnings = list(internal_dataset.warnings or [])
+            profile.class_mapping = dict(internal_dataset.class_mapping or {})
+            profile.has_bboxes = ds_has_bboxes(internal_dataset.samples)
+            profile.has_masks = ds_has_masks(internal_dataset.samples)
+            profile.has_keypoints = ds_has_keypoints(internal_dataset.samples)
+            profile.has_text_labels = ds_has_text_labels(internal_dataset.samples)
+            profile.has_depth_targets = ds_has_depth_targets(internal_dataset.samples)
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):
                 print_image_profile_summary(profile)
@@ -590,7 +730,8 @@ class ImageAgentWorker:
 
             self._step("[9/9] Saving processed zip ...")
             cleaned_path, cleaned_shape = save_processed_dataset(
-                best["spec"], profile, config
+                best["spec"], profile, config,
+                internal_dataset=internal_dataset,
             )
             self._log("OK", f"  {cleaned_path}")
             self._log("INFO",
@@ -663,6 +804,10 @@ class ImageAgentWorker:
                                   f"(gray={profile.grayscale_ratio:.0%})",
                 "imbalance_ratio": ir_display,
                 "task_context":   tc,
+                "input_format":   self.input_format,
+                "input_format_key": self.input_format_key,
+                "annotation_profile": dict(profile.annotation_profile or {}),
+                "parsing_summary": dict(profile.parsing_summary or {}),
                 "meta_status":    ms_final,
                 "mem_influence":  mem_influence,
                 "mem_update":     outcome,

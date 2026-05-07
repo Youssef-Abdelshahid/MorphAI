@@ -760,6 +760,7 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
         else:
             meta_items = [
                 ("Dataset",         ds_name),
+                ("Modality",        "Tabular"),
                 ("Target column",   cfg.get("target", "—")),
                 ("Priority metric", metric_label(metric)),
                 ("Generated",       ts_fmt),
@@ -1101,7 +1102,18 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
     elif is_text:
         ov_rows.append(["Modality", "Text"])
     else:
+        ov_rows.append(["Modality", "Tabular"])
         ov_rows.append(["Target column", cfg.get("target", "—")])
+    input_format_val = (
+        cfg.get("input_format")
+        or report.get("input_format")
+        or report.get("task_context", {}).get("input_format", "")
+    )
+    if input_format_val:
+        ov_rows.append(["Input format", input_format_val])
+    rec_path_val = cfg.get("record_path") or report.get("structure_profile", {}).get("detected_record_path", "")
+    if rec_path_val:
+        ov_rows.append(["Record path", rec_path_val])
     ov_rows += [
         ["Priority metric",   metric_label(metric)],
         ["Pipelines tested",  str(report.get("pipelines_tested", "—"))],
@@ -1173,6 +1185,37 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
         if chart_dims:
             story.append(_fw_image(chart_dims, available_w))
             story.append(Spacer(1, 0.3 * cm))
+        ann_prof = report.get("annotation_profile") or {}
+        if ann_prof and (ann_prof.get("input_format") or "zip_folder") not in {"", "zip_folder", "image_folder_zip"}:
+            story.append(Spacer(1, 0.2 * cm))
+            story.append(_p("Annotation parsing summary", h2_sty))
+            story.append(Spacer(1, 0.2 * cm))
+            ann_rows = [
+                [Paragraph("Field", pipe_hdr_sty), Paragraph("Value", pipe_hdr_sty)],
+                ["Input format",            str(ann_prof.get("input_format", ""))],
+                ["Original images",         str(ann_prof.get("original_image_count", 0))],
+                ["Parsed images",           str(ann_prof.get("parsed_image_count", 0))],
+                ["Missing images",          str(ann_prof.get("missing_image_count", 0))],
+                ["Unused images",           str(ann_prof.get("unused_image_count", 0))],
+                ["Annotations",             str(ann_prof.get("annotation_count", 0))],
+                ["Categories",              str(ann_prof.get("category_count", 0))],
+                ["Bounding boxes",          str(ann_prof.get("bbox_count", 0))],
+                ["Invalid bboxes",          str(ann_prof.get("invalid_bbox_count", 0))],
+                ["Avg boxes / image",       f"{ann_prof.get('average_boxes_per_image', 0.0):.2f}"],
+                ["Images without annotations", str(ann_prof.get("images_without_annotations", 0))],
+                ["Segmentations",           str(ann_prof.get("segmentation_count", 0))],
+                ["Keypoints",               str(ann_prof.get("keypoint_count", 0))],
+                ["Unmapped classes",        str(ann_prof.get("unmapped_class_count", 0))],
+                ["Splits",                  str(ann_prof.get("split_summary", {}))],
+            ]
+            warns = report.get("parser_warnings") or ann_prof.get("parsing_warnings") or []
+            if warns:
+                preview = "; ".join(str(w) for w in warns[:3])
+                if len(warns) > 3:
+                    preview += f"  (+{len(warns) - 3} more)"
+                ann_rows.append(["Parser warnings", preview])
+            story.append(_tbl(ann_rows, [5.5 * cm, available_w - 5.5 * cm]))
+            story.append(Spacer(1, 0.4 * cm))
     elif is_audio:
         sr_dist = prof.get("sample_rate_distribution", {})
         ch_dist = prof.get("channel_count_distribution", {})
@@ -1283,6 +1326,37 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
         if chart_profile:
             story.append(_fw_image(chart_profile, available_w))
             story.append(Spacer(1, 0.3 * cm))
+
+        sp = report.get("structure_profile") or {}
+        if sp and sp.get("input_format") and sp.get("input_format") != "csv_excel":
+            story.append(Spacer(1, 0.3 * cm))
+            story.append(_p("Structured-input parsing summary", h2_sty))
+            story.append(Spacer(1, 0.2 * cm))
+            sp_rows = [
+                [Paragraph("Field", pipe_hdr_sty), Paragraph("Value", pipe_hdr_sty)],
+                ["Input format",        str(sp.get("input_format", ""))],
+                ["Original records",    str(sp.get("original_record_count", 0))],
+                ["Parsed records",      str(sp.get("parsed_record_count", 0))],
+                ["Invalid records",     str(sp.get("invalid_record_count", 0))],
+                ["Detected record path", str(sp.get("detected_record_path", "—") or "—")],
+                ["Max nesting depth",   str(sp.get("max_nesting_depth", 0))],
+                ["Avg nesting depth",   f"{float(sp.get('average_nesting_depth', 0.0)):.2f}"],
+                ["Flattened columns",   str(sp.get("flattened_column_count", 0))],
+                ["Object/array/scalar fields",
+                 f"{sp.get('object_field_count', 0)} / "
+                 f"{sp.get('array_field_count', 0)} / "
+                 f"{sp.get('scalar_field_count', 0)}"],
+                ["Schema variants",     str(sp.get("schema_variant_count", 0))],
+                ["Type inconsistencies", str(sp.get("type_inconsistency_count", 0))],
+            ]
+            warns = report.get("parser_warnings") or sp.get("parser_warnings") or []
+            if warns:
+                preview = "; ".join(str(w) for w in warns[:3])
+                if len(warns) > 3:
+                    preview += f"  (+{len(warns) - 3} more)"
+                sp_rows.append(["Parser warnings", preview])
+            story.append(_tbl(sp_rows, [5.5 * cm, available_w - 5.5 * cm]))
+            story.append(Spacer(1, 0.4 * cm))
 
     # ─── Page 4: Pipeline Rankings ────────────────────────────────────────
     story.append(PageBreak())

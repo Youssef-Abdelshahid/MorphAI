@@ -126,7 +126,7 @@ def generate_report(profile: TextProfile, results: List[Dict[str, Any]], best: D
     return {
         "timestamp": datetime.now().isoformat(),
         "modality": "Text",
-        "config": {"data_path": str(config.data_path), "metric": config.metric},
+        "config": {"data_path": str(config.data_path), "metric": config.metric, "modality": config.modality, "input_format": getattr(config, "input_format", "")},
         "task_context": tc,
         "profile_summary": profile_dict,
         "text_meta_features": text_meta_features(profile, config.task_type, selected_metric, best_pipeline_dict),

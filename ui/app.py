@@ -56,6 +56,7 @@ from ui.worker import AgentWorker, ImageAgentWorker
 from ui.audio_worker import AudioAgentWorker
 from ui.text_worker import TextAgentWorker
 from src.tabular.config import default_metric_for_task
+from src.utils.ingestion import get_input_format, is_supported
 from ui.views.run_view import RunViewMixin
 from ui.views.report_view import ReportViewMixin
 from ui.views.console_view import ConsoleViewMixin
@@ -237,40 +238,19 @@ class App(
 
     def _on_browse(self) -> None:
         modality = self._modality_var.get()
+        input_format_label = self._input_format_var.get() if hasattr(self, "_input_format_var") else ""
+        fmt = get_input_format(modality, input_format_label)
 
-        if modality == "Image":
-            path = filedialog.askopenfilename(
-                title="Select image dataset zip archive",
-                filetypes=[("Zip archives", "*.zip"), ("All files", "*.*")],
-            )
-            if not path:
-                return
-            self._csv_path = Path(path)
-            name = self._csv_path.name
-            self._file_lbl.configure(
-                text=(name if len(name) <= 40 else name[:37] + "…"),
-                text_color=TXT,
+        if fmt is None or not fmt.implemented:
+            self._clog(
+                f"'{input_format_label}' for {modality} is not implemented yet.",
+                "WARN",
             )
             return
 
-        _filetypes_map = {
-            "CSV / Tabular":   [("CSV files", "*.csv"), ("All files", "*.*")],
-            "Audio":           [("Zip archives", "*.zip"), ("All files", "*.*")],
-            "Text":            [("Structured text datasets", "*.csv *.xlsx *.xls"), ("CSV files", "*.csv"), ("Excel files", "*.xlsx *.xls"), ("All files", "*.*")],
-            "Semi-structured": [("Structured files", "*.json *.xml *.yaml *.yml *.log"), ("All files", "*.*")],
-            "Unstructured":    [("All files", "*.*")],
-        }
-        _titles_map = {
-            "CSV / Tabular":   "Select CSV dataset",
-            "Audio":           "Select audio dataset zip archive",
-            "Text":            "Select structured text CSV or Excel dataset",
-            "Semi-structured": "Select semi-structured dataset",
-            "Unstructured":    "Select dataset",
-        }
-        path = filedialog.askopenfilename(
-            title=_titles_map.get(modality, "Select dataset"),
-            filetypes=_filetypes_map.get(modality, [("All files", "*.*")]),
-        )
+        title = fmt.file_dialog_title
+        filetypes = list(fmt.file_dialog_filters)
+        path = filedialog.askopenfilename(title=title, filetypes=filetypes)
         if not path:
             return
         self._csv_path = Path(path)
@@ -285,6 +265,17 @@ class App(
             return
 
         modality = self._modality_var.get()
+        input_format_label = self._input_format_var.get() if hasattr(self, "_input_format_var") else ""
+
+        if not is_supported(modality, input_format_label):
+            fmt = get_input_format(modality, input_format_label)
+            hint = (fmt.coming_soon_hint if fmt else "") or "Please choose an implemented format."
+            self._clog(
+                f"This input format is planned but not implemented yet. {hint}",
+                "WARN",
+            )
+            self._switch_view("console")
+            return
 
         if not self._csv_path or not self._csv_path.exists():
             self._clog("Please select a valid input file.", "ERROR")
@@ -315,6 +306,14 @@ class App(
                 notes=ctx.get("notes", ""),
                 image_format=ctx.get("image_format", ""),
                 color_space=ctx.get("color_space", ""),
+                input_format=ctx.get("input_format", ""),
+                input_format_key=ctx.get("input_format_key", "zip_folder"),
+                annotation_path=ctx.get("annotation_path", ""),
+                image_dir=ctx.get("image_dir", ""),
+                annotation_dir=ctx.get("annotation_dir", ""),
+                label_dir=ctx.get("label_dir", ""),
+                class_config=ctx.get("class_config", ""),
+                split_selection=ctx.get("split_selection", ""),
             )
             self._thread = threading.Thread(target=worker.run, daemon=True)
             self._thread.start()
@@ -348,6 +347,7 @@ class App(
                 audio_format=ctx.get("audio_format", ""),
                 channel_layout=ctx.get("channel_layout", ""),
                 sample_rate=ctx.get("sample_rate", ""),
+                input_format=ctx.get("input_format", ""),
             )
             self._thread = threading.Thread(target=worker.run, daemon=True)
             self._thread.start()
@@ -384,24 +384,13 @@ class App(
                 auxiliary_feature_columns=ctx.get("auxiliary_feature_columns") or [],
                 multilabel_format=ctx.get("multilabel_format", "single_column"),
                 binary_label_columns=ctx.get("binary_label_columns") or [],
+                input_format=ctx.get("input_format", ""),
             )
             self._thread = threading.Thread(target=worker.run, daemon=True)
             self._thread.start()
             self._clear_context_fields()
             self._csv_path = None
             self._file_lbl.configure(text="No file selected", text_color=TXT_MUTED)
-            return
-
-        if modality not in ("CSV / Tabular", "Image"):
-            ctx = self._get_context_fields()
-            self._clog(f"[{modality}]  Run context captured.", "INFO")
-            for k, v in ctx.items():
-                if v and k not in ("modality", "notes"):
-                    self._clog(f"  {k}: {v}", "INFO")
-            if ctx.get("notes"):
-                self._clog(f"  notes: {ctx['notes']}", "INFO")
-            self._clog(f"Backend pipeline for '{modality}' is not yet implemented.", "WARN")
-            self._switch_view("console")
             return
 
         ctx = self._get_context_fields()
@@ -429,7 +418,10 @@ class App(
             domain=ctx.get("domain", ""),
             constraints=ctx.get("constraints", ""),
             notes=ctx.get("notes", ""),
-            modality=ctx.get("modality", "CSV / Tabular"),
+            modality=ctx.get("modality", "Tabular"),
+            input_format=ctx.get("input_format", ""),
+            input_format_key=ctx.get("input_format_key", ""),
+            record_path=ctx.get("record_path", ""),
             fe_budget=ctx.get("fe_budget", ""),
             data_quality=ctx.get("data_quality", ""),
         )
@@ -532,7 +524,9 @@ class App(
         self._run_btn.configure(state=state)
         self._browse_btn.configure(state=state)
         self._modality_menu.configure(state=state)
-        if self._modality_var.get() == "CSV / Tabular":
+        if hasattr(self, "_input_format_menu"):
+            self._input_format_menu.configure(state=state)
+        if self._modality_var.get() == "Tabular":
             self._csv_task_menu.configure(state=state)
             self._target.configure(state=state)
             self._metric_menu.configure(state=state)

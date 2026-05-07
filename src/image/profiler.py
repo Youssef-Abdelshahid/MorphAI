@@ -1,6 +1,6 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 from PIL import Image
@@ -63,6 +63,18 @@ class ImageProfile:
 
     image_paths: List[str]
     image_labels: List[str]
+
+    input_format: str = ""
+    parsing_summary: Dict[str, Any] = field(default_factory=dict)
+    annotation_profile: Dict[str, Any] = field(default_factory=dict)
+    structure_profile: Dict[str, Any] = field(default_factory=dict)
+    parser_warnings: List[str] = field(default_factory=list)
+    class_mapping: Dict[int, str] = field(default_factory=dict)
+    has_bboxes: bool = False
+    has_masks: bool = False
+    has_keypoints: bool = False
+    has_text_labels: bool = False
+    has_depth_targets: bool = False
 
 
 def _collect_image_paths(root: Path) -> Tuple[List[Path], List[str]]:

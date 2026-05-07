@@ -183,7 +183,10 @@ class Config:
     domain: str = ""
     constraints: str = ""
     notes: str = ""
-    modality: str = "CSV / Tabular"
+    modality: str = "Tabular"
+    input_format: str = ""
+    input_format_key: str = ""
+    record_path: str = ""
     fe_budget: str = ""
     data_quality: str = ""
 
@@ -224,6 +227,7 @@ class Config:
             "active_constraints": self.active_constraints,
             "notes": self.notes,
             "modality": self.modality,
+            "input_format": self.input_format,
             "fe_budget": self.fe_budget,
             "fe_budget_norm": self.fe_budget_norm,
             "data_quality": self.data_quality,

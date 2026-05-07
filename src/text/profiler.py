@@ -585,7 +585,10 @@ def profile_text_dataset(
         "mentions": r"@\w+",
         "hashtags": r"#\w+",
     }
-    noise_counts = {name: int(texts.str.contains(pattern, regex=True, na=False).sum()) for name, pattern in noise_patterns.items()}
+    import warnings
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=UserWarning, message="This pattern is interpreted as a regular expression")
+        noise_counts = {name: int(texts.str.contains(pattern, regex=True, na=False).sum()) for name, pattern in noise_patterns.items()}
     noise_ratios = {name: count / max(len(df), 1) for name, count in noise_counts.items()}
     label_distribution, missing_targets = _label_counts(df, task_type, cols)
     counts = sorted(label_distribution.values(), reverse=True)

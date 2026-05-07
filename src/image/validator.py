@@ -1,4 +1,3 @@
-import json
 import zipfile
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -199,4 +198,122 @@ def validate_image_run(config, root: Path) -> list:
 
     annotations = _annotation_summary(root)
     errors.extend(_task_validation_hints(task_type, annotations, classes))
+    return errors
+
+
+def validate_internal_dataset(config, dataset) -> list:
+    errors: List[str] = []
+    task_type = normalize_task_type(config.task_type)
+    metric = (config.metric or "").strip().lower()
+    input_format = getattr(dataset, "input_format", "") or ""
+
+    if not task_type:
+        errors.append("An image task type is required.")
+        return errors
+    if task_type not in SUPPORTED_TASK_TYPES:
+        errors.append(
+            f"Task type '{task_type}' is not yet supported for image data. "
+            f"Supported task types: {sorted(SUPPORTED_TASK_TYPES)}"
+        )
+        return errors
+
+    valid_metrics = valid_metrics_for_task(task_type)
+    if valid_metrics:
+        if not metric:
+            errors.append(
+                f"A priority metric is required for an image task of type '{task_type}'. "
+                f"Suggested default: {default_metric_for_task(task_type)}"
+            )
+        elif metric not in valid_metrics:
+            errors.append(
+                f"Metric '{config.metric}' is not valid for '{task_type}'. "
+                f"Valid metrics: {valid_metrics}"
+            )
+
+    samples = getattr(dataset, "samples", []) or []
+    if len(samples) < 10:
+        errors.append(f"Parsed dataset has only {len(samples)} images. At least 10 are required.")
+        return errors
+
+    has_bboxes = any(s.bboxes for s in samples)
+    has_masks = any(s.masks for s in samples)
+    has_keypoints = any(s.keypoints for s in samples)
+    has_class_labels = any(s.labels for s in samples)
+    has_text = any(s.transcription for s in samples)
+    has_depth = any(s.depth_path for s in samples)
+
+    if task_type == "classification":
+        if not has_class_labels:
+            errors.append(
+                "Single-label classification requires image-level labels. "
+                f"The selected input format '{input_format}' does not provide image-level class labels."
+            )
+        else:
+            class_counts: Dict[str, int] = {}
+            for sample in samples:
+                if sample.labels:
+                    cls = sample.labels[0]
+                    class_counts[cls] = class_counts.get(cls, 0) + 1
+            small = [c for c, n in class_counts.items() if n < 2]
+            if len(class_counts) < 2:
+                errors.append("Single-label classification needs at least 2 distinct classes.")
+            if small:
+                errors.append(
+                    f"Classes with fewer than 2 images: {small}. "
+                    "Each class needs at least 2 samples for evaluation."
+                )
+    elif task_type == "multilabel":
+        if not has_class_labels:
+            errors.append(
+                "Multi-label classification requires image labels but none were provided "
+                f"by the '{input_format}' input format."
+            )
+    elif task_type == "detection":
+        if not has_bboxes:
+            errors.append(
+                f"The selected input format '{input_format}' does not provide the bounding box "
+                "annotations required for object detection."
+            )
+    elif task_type == "semantic_segmentation":
+        if not has_masks:
+            errors.append(
+                f"The selected input format '{input_format}' does not provide the segmentation "
+                "masks required for semantic segmentation."
+            )
+    elif task_type == "instance_segmentation":
+        if not has_masks:
+            errors.append(
+                f"The selected input format '{input_format}' does not provide the instance "
+                "masks required for instance segmentation."
+            )
+    elif task_type == "keypoint":
+        if not has_keypoints:
+            errors.append(
+                f"The selected input format '{input_format}' does not provide the keypoint "
+                "annotations required for keypoint / pose estimation."
+            )
+    elif task_type == "retrieval":
+        if not has_class_labels:
+            errors.append(
+                "Image retrieval needs class labels or query/gallery structure. The selected "
+                f"input format '{input_format}' does not provide them."
+            )
+    elif task_type == "anomaly":
+        if not has_class_labels and not has_masks:
+            errors.append(
+                "Anomaly / defect detection needs labels or masks indicating normal/abnormal samples."
+            )
+    elif task_type == "ocr":
+        if not has_text:
+            errors.append(
+                f"OCR requires transcriptions / text labels which are not provided by '{input_format}'."
+            )
+    elif task_type == "generation":
+        pass
+    elif task_type == "depth":
+        if not has_depth:
+            errors.append(
+                f"Depth estimation requires depth maps / targets which are not provided by '{input_format}'."
+            )
+
     return errors

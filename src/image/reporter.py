@@ -174,15 +174,28 @@ def generate_report(
         learning_summary["memory_influence"] = mem_influence
     if mem_update_outcome:
         learning_summary["memory_update"] = mem_update_outcome
+    profile_dict = _profile_to_dict(profile)
+    profile_dict["input_format"] = getattr(profile, "input_format", "") or ""
+    annotation_profile = dict(getattr(profile, "annotation_profile", {}) or {})
+    parsing_summary = dict(getattr(profile, "parsing_summary", {}) or {})
+    structure_profile = dict(getattr(profile, "structure_profile", {}) or {})
+    parser_warnings = list(getattr(profile, "parser_warnings", []) or [])
     return {
         "timestamp": datetime.now().isoformat(),
         "modality": "Image",
         "config": {
             "data_path": str(config.data_path),
             "metric": config.metric,
+            "modality": config.modality,
+            "input_format": getattr(profile, "input_format", "") or getattr(config, "input_format", ""),
         },
         "task_context": tc,
-        "profile_summary": _profile_to_dict(profile),
+        "input_format": getattr(profile, "input_format", "") or "",
+        "annotation_profile": annotation_profile,
+        "parsing_summary": parsing_summary,
+        "structure_profile": structure_profile,
+        "parser_warnings": parser_warnings,
+        "profile_summary": profile_dict,
         "pipelines_tested": len(results),
         "n_models": best.get("n_models", 1),
         "results": [

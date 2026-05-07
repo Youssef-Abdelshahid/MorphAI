@@ -9,6 +9,7 @@ customtkinter>=5.2.0
 openpyxl>=3.1.0
 xlrd>=2.0.1
 langdetect>=1.0.9
+PyYAML>=6.0
 
 # PDF export
 reportlab>=4.0.0

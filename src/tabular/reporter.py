@@ -260,6 +260,9 @@ def generate_report(
     meta_status: Optional[Dict[str, Any]] = None,
     mem_influence: Optional[Dict[str, Any]] = None,
     mem_update_outcome: Optional[str] = None,
+    structure_profile: Optional[Dict[str, Any]] = None,
+    parsing_summary: Optional[Dict[str, Any]] = None,
+    parser_warnings: Optional[List[str]] = None,
 ) -> dict:
     tc      = config.task_context()
     explanation = generate_explanation(
@@ -281,11 +284,18 @@ def generate_report(
     return {
         "timestamp": datetime.now().isoformat(),
         "config": {
-            "data_path": str(config.data_path),
-            "target":    config.target,
-            "metric":    config.metric,
+            "data_path":    str(config.data_path),
+            "target":       config.target,
+            "metric":       config.metric,
+            "modality":     config.modality,
+            "input_format": getattr(config, "input_format", ""),
+            "input_format_key": getattr(config, "input_format_key", ""),
+            "record_path": getattr(config, "record_path", ""),
         },
         "task_context": tc,
+        "structure_profile": dict(structure_profile or {}),
+        "parsing_summary": dict(parsing_summary or {}),
+        "parser_warnings": list(parser_warnings or []),
         "profile_summary": _profile_to_dict(profile),
         "pipelines_tested": len(results),
         "n_models": best.get("n_models", 1),

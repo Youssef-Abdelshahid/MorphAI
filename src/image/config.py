@@ -143,6 +143,7 @@ class ImageConfig:
     constraints: str = ""
     notes: str = ""
     modality: str = "Image"
+    input_format: str = ""
     image_format: str = ""
     color_space: str = ""
 
@@ -170,6 +171,7 @@ class ImageConfig:
             "active_constraints": self.active_constraints,
             "notes": self.notes,
             "modality": self.modality,
+            "input_format": self.input_format,
             "image_format": self.image_format,
             "color_space": self.color_space,
             "supervision": self.supervision,

@@ -1,4 +1,5 @@
 import io
+import json
 import zipfile
 from pathlib import Path
 from typing import Tuple
@@ -11,6 +12,14 @@ from .preprocessing import ImagePipelineSpec
 from .profiler import ImageProfile
 
 PROCESSED_DIR = Path("processed")
+
+_FORMAT_FILENAME_TOKENS = {
+    "zip_folder": "folder",
+    "image_folder_zip": "folder",
+    "coco": "coco",
+    "pascal_voc": "voc",
+    "yolo": "yolo",
+}
 
 
 def _pipeline_short_id(spec: ImagePipelineSpec) -> str:
@@ -90,11 +99,14 @@ def save_processed_dataset(
     spec: ImagePipelineSpec,
     profile: ImageProfile,
     config: ImageConfig,
+    internal_dataset=None,
 ) -> Tuple[Path, tuple]:
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     dataset_stem = config.data_path.stem
-    pid = _pipeline_short_id(spec)
-    out_path = PROCESSED_DIR / f"{dataset_stem}_{pid}_processed.zip"
+    input_fmt = (getattr(profile, "input_format", "") or "image_folder_zip").replace(" ", "_")
+    task_token = (getattr(config, "task_type", "") or "task").replace(" ", "_")
+    fmt_token = _FORMAT_FILENAME_TOKENS.get(input_fmt, input_fmt)
+    out_path = PROCESSED_DIR / f"image_{fmt_token}_{task_token}_cleaned.zip"
 
     n_saved = 0
     used_names: dict = {}
@@ -107,10 +119,10 @@ def save_processed_dataset(
                 processed = _preprocess_for_output(img, spec)
 
                 src_stem = Path(path_str).stem
-                base_name = f"{label}/{src_stem}.png"
+                base_name = f"images/{label or 'all'}/{src_stem}.png"
                 if base_name in used_names:
                     used_names[base_name] += 1
-                    arc_name = f"{label}/{src_stem}_{used_names[base_name]}.png"
+                    arc_name = f"images/{label or 'all'}/{src_stem}_{used_names[base_name]}.png"
                 else:
                     used_names[base_name] = 0
                     arc_name = base_name
@@ -122,8 +134,53 @@ def save_processed_dataset(
             except Exception:
                 continue
 
+        if internal_dataset is not None:
+            try:
+                annotations_payload = _internal_dataset_payload(internal_dataset)
+                zout.writestr("annotations/internal_annotations.json", json.dumps(annotations_payload, indent=2))
+            except Exception:
+                pass
+
+        metadata = {
+            "modality": "image",
+            "input_format": getattr(profile, "input_format", "") or input_fmt,
+            "task_type": getattr(config, "task_type", ""),
+            "selected_pipeline": spec.name(),
+            "pipeline_config": spec.to_dict(),
+            "parsing_summary": dict(getattr(profile, "parsing_summary", {}) or {}),
+            "annotation_profile": dict(getattr(profile, "annotation_profile", {}) or {}),
+            "structure_profile": dict(getattr(profile, "structure_profile", {}) or {}),
+            "class_mapping": {str(k): v for k, v in (getattr(profile, "class_mapping", {}) or {}).items()},
+            "warnings": list(getattr(profile, "parser_warnings", []) or []),
+            "output_structure": "images/<class>/<image>.png",
+        }
+        zout.writestr("metadata.json", json.dumps(metadata, indent=2))
+
     if n_saved == 0:
         raise ValueError("No images could be processed and saved.")
 
-    n_classes = len(set(profile.image_labels))
+    n_classes = len(set(profile.image_labels)) or 1
     return out_path, (n_saved, n_classes)
+
+
+def _internal_dataset_payload(internal_dataset) -> dict:
+    samples = []
+    for s in getattr(internal_dataset, "samples", []) or []:
+        samples.append({
+            "image_id": s.image_id,
+            "image_path": Path(s.image_path).name,
+            "width": s.width,
+            "height": s.height,
+            "labels": s.labels,
+            "bboxes": [list(b) for b in s.bboxes],
+            "bbox_classes": s.bbox_classes,
+            "keypoints": [[list(p) for p in instance] for instance in s.keypoints],
+            "transcription": s.transcription,
+            "split": s.split,
+        })
+    return {
+        "input_format": getattr(internal_dataset, "input_format", ""),
+        "original_format": getattr(internal_dataset, "original_format", ""),
+        "class_mapping": {str(k): v for k, v in (getattr(internal_dataset, "class_mapping", {}) or {}).items()},
+        "samples": samples,
+    }

@@ -124,6 +124,7 @@ class AudioConfig:
     constraints: str = ""
     notes: str = ""
     modality: str = "Audio"
+    input_format: str = ""
     audio_format: str = ""
     channel_layout: str = ""
     sample_rate: str = ""
@@ -152,6 +153,7 @@ class AudioConfig:
             "active_constraints": self.active_constraints,
             "notes": self.notes,
             "modality": self.modality,
+            "input_format": self.input_format,
             "audio_format": self.audio_format,
             "channel_layout": self.channel_layout,
             "sample_rate": self.sample_rate,

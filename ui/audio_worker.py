@@ -18,7 +18,7 @@ from src.audio.pipeline_generator import generate_pipelines as generate_audio_pi
 from src.audio.profiler import profile_audio_dataset
 from src.audio.reporter import generate_report as generate_audio_report, print_profile_summary as print_audio_profile_summary, save_report as save_audio_report
 from src.audio.validator import validate_audio_run, validate_audio_zip
-from src.shared.selector import select_best
+from src.utils.shared.selector import select_best
 
 _AUD_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg"}
 
@@ -38,7 +38,7 @@ def _find_audio_dataset_root(extracted_dir: Path) -> Path:
 
 
 class AudioAgentWorker:
-    def __init__(self, q: queue.Queue, zip_path: Path, metric: str, task_type: str = "classification", domain: str = "", constraints: str = "", notes: str = "", audio_format: str = "", channel_layout: str = "", sample_rate: str = "") -> None:
+    def __init__(self, q: queue.Queue, zip_path: Path, metric: str, task_type: str = "classification", domain: str = "", constraints: str = "", notes: str = "", audio_format: str = "", channel_layout: str = "", sample_rate: str = "", input_format: str = "") -> None:
         self.q = q
         self.zip_path = zip_path
         self.metric = metric
@@ -49,6 +49,7 @@ class AudioAgentWorker:
         self.audio_format = audio_format
         self.channel_layout = channel_layout
         self.sample_rate = sample_rate
+        self.input_format = input_format
 
     def run(self) -> None:
         try:
@@ -58,7 +59,19 @@ class AudioAgentWorker:
             self.q.put({"kind": "fail", "text": str(exc)})
 
     def _execute(self) -> None:
-        config = AudioConfig(self.zip_path, self.metric, self.task_type, self.domain, self.constraints, self.notes, "Audio", self.audio_format, self.channel_layout, self.sample_rate)
+        config = AudioConfig(
+            data_path=self.zip_path,
+            metric=self.metric,
+            task_type=self.task_type,
+            domain=self.domain,
+            constraints=self.constraints,
+            notes=self.notes,
+            modality="Audio",
+            input_format=self.input_format,
+            audio_format=self.audio_format,
+            channel_layout=self.channel_layout,
+            sample_rate=self.sample_rate,
+        )
         tc = config.task_context()
         self._sep()
         self._log("INFO", f"Dataset : {self.zip_path.name}")

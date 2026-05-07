@@ -7,7 +7,7 @@ import queue
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from src.shared.selector import select_best
+from src.utils.shared.selector import select_best
 from src.text.columns import resolve_columns
 from src.text.config import TextConfig
 from src.text.executor import evaluate_pipeline as evaluate_text_pipeline
@@ -37,6 +37,7 @@ class TextAgentWorker:
         auxiliary_feature_columns: Optional[List[str]] = None,
         multilabel_format: str = "single_column",
         binary_label_columns: Optional[List[str]] = None,
+        input_format: str = "",
     ) -> None:
         self.q = q
         self.data_path = data_path
@@ -52,6 +53,7 @@ class TextAgentWorker:
         self.auxiliary_feature_columns = list(auxiliary_feature_columns or [])
         self.multilabel_format = multilabel_format or "single_column"
         self.binary_label_columns = list(binary_label_columns or [])
+        self.input_format = input_format
 
     def run(self) -> None:
         try:
@@ -62,16 +64,17 @@ class TextAgentWorker:
 
     def _execute(self) -> None:
         config = TextConfig(
-            self.data_path,
-            self.metric,
-            self.task_type,
-            self.domain,
-            self.constraints,
-            self.notes,
-            "Text",
-            self.language,
-            self.text_source,
-            self.text_length,
+            data_path=self.data_path,
+            metric=self.metric,
+            task_type=self.task_type,
+            domain=self.domain,
+            constraints=self.constraints,
+            notes=self.notes,
+            modality="Text",
+            input_format=self.input_format,
+            language=self.language,
+            text_source=self.text_source,
+            text_length=self.text_length,
             col_overrides=self.col_overrides or None,
             auxiliary_feature_columns=list(self.auxiliary_feature_columns),
             multilabel_format=self.multilabel_format,

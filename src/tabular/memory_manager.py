@@ -12,7 +12,7 @@ META_LEARNER_FILE = MEMORY_DIR / "meta_learner.pkl"
 
 _SIMILARITY_THRESHOLD = 0.60
 GOOD_SCORE_THRESHOLD = 0.60
-_MEMORY_SCHEMA_VERSION = 3
+_MEMORY_SCHEMA_VERSION = 4
 _SCORE_SYSTEM = "normalized_v2"
 
 
@@ -45,6 +45,7 @@ def _exact_fingerprint(record: dict) -> str:
         "target": record.get("target", ""),
         "metric": record.get("metric_priority", ""),
         "task_type": tc.get("task_type", ""),
+        "input_format": record.get("input_format", "csv_excel"),
         "fe_budget_norm": tc.get("fe_budget_norm", ""),
         "data_quality_norm": tc.get("data_quality_norm", ""),
         "constraints": tc.get("constraints", ""),
@@ -162,6 +163,8 @@ class MemoryManager:
         best: Dict[str, Any],
         meta_status: Optional[dict] = None,
         mem_influence: Optional[dict] = None,
+        structure_profile: Optional[dict] = None,
+        parsing_summary: Optional[dict] = None,
     ) -> str:
         bp_dict = best["spec"].to_dict()
         ds_name = config.data_path.name
@@ -236,6 +239,8 @@ class MemoryManager:
             f"best: {best['spec'].name()}"
         )
 
+        input_format_key = (getattr(config, "input_format_key", "") or "csv_excel").strip().lower() or "csv_excel"
+
         now = datetime.now()
         record: Dict[str, Any] = {
             "id": now.strftime("%Y%m%d_%H%M%S_%f"),
@@ -246,6 +251,10 @@ class MemoryManager:
             "target": config.target,
             "metric_priority": config.metric,
             "task_type": config.task_type,
+            "modality": "tabular",
+            "input_format": input_format_key,
+            "input_format_label": getattr(config, "input_format", ""),
+            "record_path": getattr(config, "record_path", ""),
             "selected_metric": selected_metric,
             "normalized_score": round(normalized_score, 6),
             "raw_metrics": raw_metrics,
@@ -253,6 +262,8 @@ class MemoryManager:
             "evaluator_details": best.get("evaluator_details", {}),
             "task_context": config.task_context(),
             "profile_summary": profile_summary,
+            "structure_profile": dict(structure_profile or {}),
+            "parsing_summary": dict(parsing_summary or {}),
             "all_pipelines_tested": all_pipelines,
             "pipelines_tested": len(results),
             "best_pipeline": bp_dict,

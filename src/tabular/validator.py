@@ -12,6 +12,40 @@ _SUPERVISED_TASK_TYPES = {"binary", "multiclass", "multilabel", "regression", "o
 _NUMERIC_TARGET_TASKS = {"regression", "time_series"}
 
 
+_TABULAR_FORMAT_KEYS = {"csv_excel", "json_records", "xml_records", "yaml_records"}
+_FORMAT_EXTENSIONS = {
+    "csv_excel": {".csv", ".tsv", ".xlsx", ".xls"},
+    "json_records": {".json", ".jsonl", ".ndjson"},
+    "xml_records": {".xml"},
+    "yaml_records": {".yaml", ".yml"},
+}
+
+
+def validate_input_file(config) -> list:
+    errors = []
+    key = (getattr(config, "input_format_key", "") or "").strip().lower()
+    if key and key not in _TABULAR_FORMAT_KEYS:
+        errors.append(f"Unsupported tabular input format '{key}'.")
+        return errors
+    if not key:
+        return errors
+    data_path = getattr(config, "data_path", None)
+    suffix = ""
+    if data_path is not None:
+        try:
+            suffix = str(data_path).lower()
+            suffix = suffix[suffix.rfind("."):] if "." in suffix else ""
+        except Exception:
+            suffix = ""
+    expected = _FORMAT_EXTENSIONS.get(key, set())
+    if expected and suffix and suffix not in expected:
+        errors.append(
+            f"File extension '{suffix}' does not match selected input format '{key}'. "
+            f"Expected one of: {sorted(expected)}"
+        )
+    return errors
+
+
 def validate_csv_run(config, df: pd.DataFrame) -> list:
     errors = []
     task_type = normalize_task_type(config.task_type)

@@ -19,10 +19,11 @@ from src.text.config import (
     metric_label as text_metric_label,
     valid_metrics_for_task as text_valid_metrics_for_task,
 )
+from src.utils.ingestion import get_input_formats, get_input_format
 
 from ui.constants import (
     BG_WIN, BG_BAR, BG_INPUT,
-    ACCENT, ACCENT_H, BORDER, ERROR,
+    ACCENT, ACCENT_H, BORDER, ERROR, WARN,
     TXT, TXT_MUTED,
     FONT_FAMILY,
 )
@@ -31,13 +32,23 @@ from ui.helpers import _sec_label, _card, _hsep
 _SENTINEL = "— select —"
 
 _MODALITY_OPTS = [
-    "CSV / Tabular",
+    "Tabular",
     "Image",
     "Audio",
     "Text",
-    "Semi-structured",
-    "Unstructured",
 ]
+
+
+def _input_format_labels(modality: str) -> list:
+    return [fmt.label for fmt in get_input_formats(modality)]
+
+
+def _default_input_format_label(modality: str) -> str:
+    for fmt in get_input_formats(modality):
+        if fmt.implemented:
+            return fmt.label
+    formats = get_input_formats(modality)
+    return formats[0].label if formats else ""
 
 _CSV_SUPERVISED_TASKS = [
     "Binary classification",
@@ -324,66 +335,8 @@ _TXT_LENGTH_OPTS = [
     "Variable / mixed",
 ]
 
-_SEMI_FORMAT_OPTS = [
-    _SENTINEL,
-    "JSON",
-    "JSON Lines (JSONL)",
-    "XML",
-    "YAML",
-    "TOML",
-    "Apache / NGINX log format",
-    "CSV with nested fields",
-    "Parquet / Avro / ORC",
-    "HTML (structured)",
-    "Mixed",
-]
-
-_SEMI_TASK_OPTS = [
-    "Record / document classification",
-    "Field / attribute extraction",
-    "Schema inference",
-    "Anomaly / schema violation detection",
-    "Data normalization / harmonization",
-    "Entity resolution / deduplication",
-    "Event stream processing",
-    "Relational extraction across records",
-]
-
-_SEMI_NESTING_OPTS = [
-    _SENTINEL,
-    "Flat (no nesting)",
-    "Shallow (2–3 levels)",
-    "Deep (4+ levels)",
-    "Variable / mixed",
-]
-
-_UNSTRUCT_CONTENT_OPTS = [
-    _SENTINEL,
-    "PDF documents",
-    "Scanned documents (OCR needed)",
-    "HTML / web pages",
-    "Email threads",
-    "PowerPoint / presentations",
-    "Word documents",
-    "Plain text files",
-    "Mixed document types",
-]
-
-_UNSTRUCT_TASK_OPTS = [
-    "Document classification",
-    "Information / entity extraction",
-    "Topic discovery",
-    "Semantic search / retrieval",
-    "Document summarization",
-    "Duplicate / near-duplicate detection",
-    "Content moderation",
-    "Document clustering",
-]
-
-_UNSTRUCT_LANG_OPTS = _TXT_LANG_OPTS
-
 _CONSTRAINTS = {
-    "CSV / Tabular": [
+    "Tabular": [
         ("no_smote",              "No SMOTE / oversampling"),
         ("no_power_transform",    "No power transform"),
         ("no_scaling",            "No feature scaling"),
@@ -423,26 +376,6 @@ _CONSTRAINTS = {
         ("no_tokenization",      "Custom tokenizer only"),
         ("keep_whitespace",      "Preserve whitespace"),
     ],
-    "Semi-structured": [
-        ("preserve_structure",   "Preserve field structure"),
-        ("no_type_coercion",     "No type coercion"),
-        ("keep_null_fields",     "Keep null / missing fields"),
-        ("no_schema_inference",  "No schema inference"),
-        ("preserve_nesting",     "Preserve nesting depth"),
-        ("no_field_rename",      "No field renaming"),
-        ("preserve_array_order", "Preserve array ordering"),
-        ("no_deduplication",     "No deduplication"),
-    ],
-    "Unstructured": [
-        ("no_ocr",              "No OCR"),
-        ("preserve_formatting", "Preserve text formatting"),
-        ("keep_metadata",       "Preserve file metadata"),
-        ("no_chunking",         "No text chunking"),
-        ("no_deduplication",    "No deduplication"),
-        ("keep_empty_sections", "Keep empty sections"),
-        ("preserve_layout",     "Preserve page layout"),
-        ("no_header_footer",    "Strip headers / footers"),
-    ],
 }
 
 _RESULTS_CONTEXT_LABELS = {
@@ -450,17 +383,15 @@ _RESULTS_CONTEXT_LABELS = {
     "domain":             "Domain",
     "fe_budget":          "FE budget",
     "data_quality":       "Data quality",
+    "input_format":       "Input format",
     "image_format":       "Format",
-    "color_space":       "Color space",
-    "audio_format":      "Format",
-    "channel_layout":    "Channels",
-    "sample_rate":       "Sample rate",
-    "language":          "Language",
-    "text_source":       "Text source",
-    "text_length":       "Text length",
-    "format_type":       "Format type",
-    "nesting_depth":     "Nesting depth",
-    "content_type":      "Content type",
+    "color_space":        "Color space",
+    "audio_format":       "Format",
+    "channel_layout":     "Channels",
+    "sample_rate":        "Sample rate",
+    "language":           "Language",
+    "text_source":        "Text source",
+    "text_length":        "Text length",
 }
 
 
@@ -543,8 +474,8 @@ class RunViewMixin:
 
         r0 = ctk.CTkFrame(cfg_card, fg_color="transparent")
         r0.pack(fill="x", padx=14, pady=(4, 6))
-        _req_label(r0, "Data type")
-        self._modality_var = ctk.StringVar(value="CSV / Tabular")
+        _req_label(r0, "Modality")
+        self._modality_var = ctk.StringVar(value="Tabular")
         self._modality_menu = ctk.CTkOptionMenu(
             r0, values=_MODALITY_OPTS,
             variable=self._modality_var,
@@ -555,6 +486,50 @@ class RunViewMixin:
             command=self._on_modality_change,
         )
         self._modality_menu.pack(side="left", padx=(6, 0))
+
+        r0b = ctk.CTkFrame(cfg_card, fg_color="transparent")
+        r0b.pack(fill="x", padx=14, pady=(4, 2))
+        _req_label(r0b, "Input format")
+        initial_modality = self._modality_var.get()
+        self._input_format_var = ctk.StringVar(value=_default_input_format_label(initial_modality))
+        self._input_format_menu = ctk.CTkOptionMenu(
+            r0b, values=_input_format_labels(initial_modality),
+            variable=self._input_format_var,
+            fg_color=BG_INPUT, button_color=ACCENT, button_hover_color=ACCENT_H,
+            dropdown_fg_color=BG_BAR, text_color=TXT,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13), height=30, width=280,
+            dynamic_resizing=False,
+            command=self._on_input_format_change,
+        )
+        self._input_format_menu.pack(side="left", padx=(6, 0))
+
+        self._input_format_msg = ctk.CTkLabel(
+            cfg_card, text="",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=WARN, anchor="w", justify="left", wraplength=720,
+        )
+        self._input_format_msg.pack(fill="x", padx=160, pady=(0, 6))
+
+        self._input_format_help = ctk.CTkLabel(
+            cfg_card, text="",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=TXT_MUTED, anchor="w", justify="left", wraplength=720,
+        )
+        self._input_format_help.pack(fill="x", padx=160, pady=(0, 4))
+
+        self._record_path_frame = ctk.CTkFrame(cfg_card, fg_color="transparent")
+        rp_row = ctk.CTkFrame(self._record_path_frame, fg_color="transparent")
+        rp_row.pack(fill="x", padx=14, pady=(2, 6))
+        _opt_label(rp_row, "Record path")
+        self._record_path_var = ctk.StringVar(value="")
+        self._record_path_entry = ctk.CTkEntry(
+            rp_row, textvariable=self._record_path_var,
+            placeholder_text="optional — e.g.  records  |  data.items  |  person",
+            fg_color=BG_INPUT, border_color=BORDER,
+            text_color=TXT, placeholder_text_color=TXT_MUTED,
+            corner_radius=8, font=ctk.CTkFont(family=FONT_FAMILY, size=13), height=30,
+        )
+        self._record_path_entry.pack(side="left", fill="x", expand=True, padx=(6, 0))
 
         r1 = ctk.CTkFrame(cfg_card, fg_color="transparent")
         r1.pack(fill="x", padx=14, pady=(4, 6))
@@ -631,7 +606,8 @@ class RunViewMixin:
         self._modality_context_vars: dict = {}
         self._constraint_vars:       dict = {}
 
-        self._build_modality_section("CSV / Tabular")
+        self._build_modality_section("Tabular")
+        self._apply_input_format_state()
 
         _sec_label(scroll, "NOTES", padx=20, pady=(14, 6))
         notes_card = _card(scroll)
@@ -657,13 +633,122 @@ class RunViewMixin:
         self._csv_target_frame.pack_forget()
         self._csv_metric_frame.pack_forget()
 
-        if modality == "CSV / Tabular":
+        labels = _input_format_labels(modality)
+        self._input_format_menu.configure(values=labels or [""])
+        self._input_format_var.set(_default_input_format_label(modality))
+        self._apply_input_format_state()
+
+        if modality == "Tabular":
             self._csv_task_frame.pack(fill="x")
             self._csv_metric_frame.pack(fill="x", pady=(0, 12))
             if self._csv_task_var.get() in _CSV_SUPERVISED_SET:
                 self._csv_target_frame.pack(fill="x")
         else:
             self._noncsv_spacer.pack(fill="x", pady=(0, 12))
+
+    def _on_input_format_change(self, _label: str) -> None:
+        self._apply_input_format_state()
+
+    def _apply_input_format_state(self) -> None:
+        modality = self._modality_var.get()
+        label = self._input_format_var.get()
+        fmt = get_input_format(modality, label)
+        msg_widget = getattr(self, "_input_format_msg", None)
+        run_btn = getattr(self, "_run_btn", None)
+        browse_btn = getattr(self, "_browse_btn", None)
+        help_widget = getattr(self, "_input_format_help", None)
+        rp_frame = getattr(self, "_record_path_frame", None)
+
+        if fmt is None:
+            if msg_widget is not None:
+                msg_widget.configure(
+                    text="Select an input format to continue.",
+                    text_color=ERROR,
+                )
+            if run_btn is not None:
+                run_btn.configure(state="disabled")
+            if browse_btn is not None:
+                browse_btn.configure(state="disabled")
+            if help_widget is not None:
+                help_widget.configure(text="")
+            if rp_frame is not None:
+                rp_frame.pack_forget()
+            return
+
+        if not fmt.implemented:
+            hint = fmt.coming_soon_hint or "Please choose an implemented format."
+            text = (
+                f"This input format is planned but not implemented yet. {hint}"
+            )
+            if msg_widget is not None:
+                msg_widget.configure(text=text, text_color=WARN)
+            if run_btn is not None:
+                run_btn.configure(state="disabled")
+            if browse_btn is not None:
+                browse_btn.configure(state="disabled")
+            self._csv_path = None
+            file_lbl = getattr(self, "_file_lbl", None)
+            if file_lbl is not None:
+                file_lbl.configure(text="No file selected", text_color=TXT_MUTED)
+            if help_widget is not None:
+                help_widget.configure(text="")
+            if rp_frame is not None:
+                rp_frame.pack_forget()
+        else:
+            if msg_widget is not None:
+                msg_widget.configure(text="")
+            if run_btn is not None:
+                run_btn.configure(state="normal")
+            if browse_btn is not None:
+                browse_btn.configure(state="normal")
+
+            help_text = ""
+            show_rp = False
+            if modality == "Tabular":
+                if fmt.key == "csv_excel":
+                    help_text = "Upload a CSV or Excel file where rows are samples and columns are features."
+                elif fmt.key == "json_records":
+                    help_text = (
+                        "Upload JSON/JSONL records. The data should contain a list of objects "
+                        "or an object containing a records list."
+                    )
+                    show_rp = True
+                elif fmt.key == "xml_records":
+                    help_text = (
+                        "Upload XML containing repeated record elements. If multiple "
+                        "repeated elements exist, enter the record path or element name."
+                    )
+                    show_rp = True
+                elif fmt.key == "yaml_records":
+                    help_text = (
+                        "Upload YAML containing a list of records or an object containing a records list."
+                    )
+                    show_rp = True
+            elif modality == "Image":
+                if fmt.key == "zip_folder":
+                    help_text = "Upload a ZIP containing image files. For classification, use one folder per class."
+                elif fmt.key == "coco":
+                    help_text = (
+                        "Upload a ZIP containing image files and a COCO annotation JSON file with images, "
+                        "annotations, and categories."
+                    )
+                elif fmt.key == "pascal_voc":
+                    help_text = (
+                        "Upload a ZIP containing images and Pascal VOC XML annotation files. Each XML "
+                        "file should describe objects and bounding boxes for an image."
+                    )
+                elif fmt.key == "yolo":
+                    help_text = (
+                        "Upload a ZIP containing images, YOLO label .txt files, and a class config file "
+                        "such as data.yaml or classes.txt."
+                    )
+            if help_widget is not None:
+                help_widget.configure(text=help_text)
+            if rp_frame is not None:
+                if show_rp:
+                    rp_frame.pack(fill="x", before=self._csv_task_frame)
+                else:
+                    rp_frame.pack_forget()
 
     def _on_csv_task_change(self, task: str) -> None:
         self._csv_task_frame.pack_forget()
@@ -722,7 +807,7 @@ class RunViewMixin:
             self._modality_menus.append(menu)
             return var
 
-        if modality == "CSV / Tabular":
+        if modality == "Tabular":
             domain_var = ctk.StringVar(value=_SENTINEL)
             _ctx_row(ctx_card, "Domain / use case", domain_var, _DOMAIN_OPTS, width=240)
             self._modality_context_vars["domain"] = domain_var
@@ -1029,40 +1114,6 @@ class RunViewMixin:
             _ctx_row(ctx_card, "Text length", len_var, _TXT_LENGTH_OPTS, width=260)
             self._modality_context_vars["text_length"] = len_var
 
-        elif modality == "Semi-structured":
-            fmt_var = ctk.StringVar(value=_SENTINEL)
-            _ctx_row(ctx_card, "Format type", fmt_var, _SEMI_FORMAT_OPTS, width=240)
-            self._modality_context_vars["format_type"] = fmt_var
-
-            task_var = ctk.StringVar(value=_SEMI_TASK_OPTS[0])
-            _ctx_row(ctx_card, "Task type", task_var, _SEMI_TASK_OPTS, width=280)
-            self._modality_context_vars["task_type"] = task_var
-
-            nesting_var = ctk.StringVar(value=_SENTINEL)
-            _ctx_row(ctx_card, "Nesting depth", nesting_var, _SEMI_NESTING_OPTS, width=200)
-            self._modality_context_vars["nesting_depth"] = nesting_var
-
-            domain_var = ctk.StringVar(value=_SENTINEL)
-            _ctx_row(ctx_card, "Domain / use case", domain_var, _DOMAIN_OPTS, width=240)
-            self._modality_context_vars["domain"] = domain_var
-
-        elif modality == "Unstructured":
-            content_var = ctk.StringVar(value=_SENTINEL)
-            _ctx_row(ctx_card, "Content type", content_var, _UNSTRUCT_CONTENT_OPTS, width=240)
-            self._modality_context_vars["content_type"] = content_var
-
-            task_var = ctk.StringVar(value=_UNSTRUCT_TASK_OPTS[0])
-            _ctx_row(ctx_card, "Task type", task_var, _UNSTRUCT_TASK_OPTS, width=280)
-            self._modality_context_vars["task_type"] = task_var
-
-            lang_var = ctk.StringVar(value=_SENTINEL)
-            _ctx_row(ctx_card, "Language", lang_var, _UNSTRUCT_LANG_OPTS, width=200)
-            self._modality_context_vars["language"] = lang_var
-
-            domain_var = ctk.StringVar(value=_SENTINEL)
-            _ctx_row(ctx_card, "Domain / use case", domain_var, _DOMAIN_OPTS, width=240)
-            self._modality_context_vars["domain"] = domain_var
-
         ctk.CTkFrame(ctx_card, height=8, fg_color="transparent").pack()
 
         _sec_label(self._modality_section, "CONSTRAINTS  /  PREFERENCES", padx=20, pady=(14, 6))
@@ -1098,18 +1149,31 @@ class RunViewMixin:
             return "" if v == _SENTINEL else v
 
         modality = self._modality_var.get()
+        input_format_label = self._input_format_var.get() if hasattr(self, "_input_format_var") else ""
+        fmt = get_input_format(modality, input_format_label)
         selected = [k for k, var in self._constraint_vars.items() if var.get()]
 
+        record_path = ""
+        rp_var = getattr(self, "_record_path_var", None)
+        if rp_var is not None:
+            try:
+                record_path = rp_var.get().strip()
+            except Exception:
+                record_path = ""
+
         result = {
-            "modality":    modality,
-            "constraints": ", ".join(selected),
-            "notes":       self._notes.get("1.0", "end").strip(),
+            "modality":     modality,
+            "input_format": input_format_label,
+            "input_format_key": fmt.key if fmt else "",
+            "record_path":  record_path,
+            "constraints":  ", ".join(selected),
+            "notes":        self._notes.get("1.0", "end").strip(),
         }
 
         for key, var in self._modality_context_vars.items():
             result[key] = _val(var)
 
-        if modality == "CSV / Tabular":
+        if modality == "Tabular":
             raw_task = self._csv_task_var.get()
             result["task_type"] = _CSV_TASK_BACKEND.get(raw_task, "")
 
@@ -1158,6 +1222,12 @@ class RunViewMixin:
 
     def _clear_context_fields(self) -> None:
         self._target.delete(0, "end")
+        rp_entry = getattr(self, "_record_path_entry", None)
+        if rp_entry is not None:
+            try:
+                rp_entry.delete(0, "end")
+            except Exception:
+                pass
         for entry in getattr(self, "_txt_col_entries", {}).values():
             try:
                 entry.delete(0, "end")

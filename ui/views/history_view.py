@@ -173,9 +173,12 @@ class HistoryViewMixin:
 
         kv("Timestamp", ts_fmt)
         kv("Dataset", Path(cfg.get("data_path", "—")).name)
-        if report.get("modality") in {"Image", "Audio", "Text"}:
-            kv("Modality", report.get("modality"))
-        else:
+        modality_val = report.get("modality") or "Tabular"
+        kv("Modality", modality_val)
+        input_format_val = cfg.get("input_format") or report.get("task_context", {}).get("input_format", "")
+        if input_format_val:
+            kv("Input format", input_format_val)
+        if cfg.get("target"):
             kv("Target", cfg.get("target", "—"))
         kv("Priority metric", metric_label_fn(metric))
         kv("Best pipeline", best.get("name", "—"))

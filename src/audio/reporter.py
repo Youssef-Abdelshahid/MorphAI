@@ -109,7 +109,7 @@ def generate_report(profile: AudioProfile, results: List[Dict[str, Any]], best: 
     return {
         "timestamp": datetime.now().isoformat(),
         "modality": "Audio",
-        "config": {"data_path": str(config.data_path), "metric": config.metric},
+        "config": {"data_path": str(config.data_path), "metric": config.metric, "modality": config.modality, "input_format": getattr(config, "input_format", "")},
         "task_context": tc,
         "profile_summary": profile_dict,
         "audio_meta_features": audio_meta_features(profile, config.task_type, selected_metric, best["spec"].to_dict()),

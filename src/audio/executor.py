@@ -305,7 +305,7 @@ def _oversample_embeddings(X: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np
 
 
 def _make_mlp(hidden: Tuple[int, ...] = (64, 32)) -> MLPClassifier:
-    return MLPClassifier(hidden_layer_sizes=hidden, activation="relu", solver="adam", alpha=1e-3, learning_rate_init=1e-3, max_iter=300, early_stopping=False, random_state=42)
+    return MLPClassifier(hidden_layer_sizes=hidden, activation="relu", solver="adam", alpha=1e-3, learning_rate_init=1e-3, max_iter=1000, early_stopping=False, random_state=42)
 
 
 def _classification(spec, profile, metric_priority, task_type="classification"):
