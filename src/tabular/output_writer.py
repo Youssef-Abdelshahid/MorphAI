@@ -97,8 +97,12 @@ def save_cleaned_dataset(
         feature_cols = [c for c in df.columns if c != profile.target_col]
         df = df.drop_duplicates(subset=feature_cols).reset_index(drop=True)
 
-    X = df.drop(columns=[profile.target_col])
-    y = df[profile.target_col].reset_index(drop=True)
+    if profile.target_col and profile.target_col in df.columns:
+        X = df.drop(columns=[profile.target_col])
+        y = df[profile.target_col].reset_index(drop=True)
+    else:
+        X = df.copy()
+        y = pd.Series([0] * len(df))
 
     drop_set = set(profile.high_missing_cols) if spec.drop_high_missing_cols else set()
     num_cols = [c for c in profile.num_cols if c in X.columns and c not in drop_set]
@@ -127,7 +131,8 @@ def save_cleaned_dataset(
 
     # ── 5. Assemble output DataFrame (features + target) ──────────────────
     out_df = pd.DataFrame(X_transformed, columns=col_names)
-    out_df[profile.target_col] = y.values
+    if profile.target_col:
+        out_df[profile.target_col] = y.values
 
     # ── 6. Save ───────────────────────────────────────────────────────────
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)

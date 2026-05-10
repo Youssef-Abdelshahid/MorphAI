@@ -51,6 +51,20 @@ class AudioProfile:
     annotation_counts: Dict[str, int]
     audio_paths: List[str]
     audio_labels: List[str]
+    input_format: str = ""
+    parsing_summary: Dict[str, int] = None
+    metadata_profile: Dict[str, int] = None
+    structure_profile: Dict[str, int] = None
+    annotation_or_reference_profile: Dict[str, int] = None
+    parser_warnings: List[str] = None
+    has_class_labels_flag: bool = False
+    has_speaker_labels_flag: bool = False
+    has_speaker_pairs_flag: bool = False
+    has_transcripts_flag: bool = False
+    has_temporal_segments_flag: bool = False
+    has_event_labels_flag: bool = False
+    has_anomaly_labels_flag: bool = False
+    has_noisy_clean_pairs_flag: bool = False
 
 
 def _audio_files(root: Path) -> List[Path]:

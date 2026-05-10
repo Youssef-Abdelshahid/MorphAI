@@ -1,5 +1,6 @@
 import ast
 import math
+import re
 import time
 import warnings
 from dataclasses import dataclass
@@ -436,7 +437,12 @@ def _evaluate_binary_or_multiclass(
         raw_metrics,
         norm_metrics,
         per_model_raw,
-        {"metric_note": metric_note} if metric_note else {},
+        {
+            "metric_note": metric_note,
+            "model_family": "shallow tabular classifier",
+            "models": list(models.keys()),
+            "baselines": ["LogisticRegression", "DecisionTreeClassifier", "GaussianNB"],
+        },
         "supervised",
         summary,
         0.0,
@@ -538,7 +544,13 @@ def _evaluate_multilabel(
         raw_metrics,
         norm_metrics,
         per_model_raw,
-        {"n_labels": int(y_bin.shape[1]), "metric_note": metric_note},
+        {
+            "n_labels": int(y_bin.shape[1]),
+            "metric_note": metric_note,
+            "model_family": "one-vs-rest multi-label classifier",
+            "models": list(models.keys()),
+            "baselines": ["OneVsRestClassifier(LogisticRegression)", "OneVsRestClassifier(DecisionTreeClassifier)", "OneVsRestClassifier(GaussianNB)"],
+        },
         "supervised",
         summary,
         0.0,
@@ -638,7 +650,13 @@ def _evaluate_regression_like(
         raw_metrics,
         norm_metrics,
         per_model_raw,
-        {"target_scales": scales, "metric_note": metric_note},
+        {
+            "target_scales": scales,
+            "metric_note": metric_note,
+            "model_family": "shallow tabular regressor",
+            "models": list(models.keys()),
+            "baselines": ["LinearRegression", "DecisionTreeRegressor", "RandomForestRegressor"],
+        },
         "supervised",
         summary,
         0.0,
@@ -736,7 +754,14 @@ def _evaluate_ordinal(
         raw_metrics,
         norm_metrics,
         per_model_raw,
-        {"ordinal_levels": ordered_values, "regression_summary": result["evaluation_summary"], "metric_note": metric_note},
+        {
+            "ordinal_levels": ordered_values,
+            "regression_summary": result["evaluation_summary"],
+            "metric_note": metric_note,
+            "model_family": "ordinal regressor with rounded predictions",
+            "models": list(models.keys()),
+            "baselines": ["LinearRegression(rounded)", "DecisionTreeRegressor(rounded)", "RandomForestRegressor(rounded)"],
+        },
         "supervised",
         summary,
         0.0,
@@ -863,7 +888,13 @@ def _evaluate_ranking(
         raw_metrics,
         norm_metrics,
         per_model_raw,
-        {"group_column": group_col, "metric_note": metric_note},
+        {
+            "group_column": group_col,
+            "metric_note": metric_note,
+            "model_family": "score-predicting ranking regressor",
+            "models": list(models.keys()),
+            "baselines": ["Ridge", "DecisionTreeRegressor", "RandomForestRegressor"],
+        },
         mode,
         summary,
         0.0,
@@ -999,8 +1030,15 @@ def _evaluate_time_series(
         raw_metrics,
         norm_metrics,
         per_model_raw,
-        {"target_scales": scales, "metric_note": metric_note},
-        "time_series",
+        {
+            "target_scales": scales,
+            "metric_note": metric_note,
+            "model_family": "lag-feature time-series forecasters",
+            "models": list(models.keys()),
+            "baselines": ["naive_last_value", "LinearRegression", "DecisionTreeRegressor"],
+            "split_strategy": "TimeSeriesSplit",
+        },
+        "supervised",
         summary,
         0.0,
         metrics_std=raw_std,
@@ -1091,7 +1129,13 @@ def _evaluate_clustering(
         raw_metrics,
         norm_metrics,
         valid_raw,
-        {"invalid_models": invalid_models, "metric_note": metric_note},
+        {
+            "invalid_models": invalid_models,
+            "metric_note": metric_note,
+            "model_family": "unsupervised tabular clustering",
+            "models": list(valid_raw.keys()),
+            "baselines": ["KMeans", "AgglomerativeClustering", "DBSCAN"],
+        },
         "unsupervised",
         summary,
         0.0,
@@ -1221,7 +1265,13 @@ def _evaluate_anomaly(
         raw_metrics,
         norm_metrics,
         per_model_raw,
-        {"metric_note": metric_note, "has_ground_truth": supervised_labels is not None},
+        {
+            "metric_note": metric_note,
+            "has_ground_truth": supervised_labels is not None,
+            "model_family": "unsupervised tabular anomaly detector",
+            "models": list(models.keys()),
+            "baselines": ["IsolationForest", "LocalOutlierFactor", "OneClassSVM"],
+        },
         mode,
         summary,
         0.0,
@@ -1262,7 +1312,12 @@ def _evaluate_dimensionality_reduction(
         except Exception:
             pass
 
-    evaluator_details: Dict[str, Any] = {"n_components": n_components}
+    evaluator_details: Dict[str, Any] = {
+        "n_components": n_components,
+        "model_family": "linear dimensionality reduction",
+        "models": ["pca"],
+        "baselines": ["PCA"],
+    }
     if prepared.y is not None and len(prepared.y) == len(prepared.X):
         y = prepared.y.reset_index(drop=True)
         if pd.api.types.is_numeric_dtype(y):
@@ -1316,9 +1371,37 @@ def _evaluate_dimensionality_reduction(
     )
 
 
+_TXN_DELIMS = ["|", ";", ","]
+
+
+def _detect_basket_column(df: pd.DataFrame) -> Optional[Tuple[str, str]]:
+    str_cols = df.select_dtypes(include=["object", "string"]).columns
+    for col in str_cols:
+        sample = df[col].dropna().astype(str).head(200)
+        if len(sample) == 0:
+            continue
+        for delim in _TXN_DELIMS:
+            hits = sample.str.contains(re.escape(delim), regex=True).sum()
+            if hits >= max(5, int(0.5 * len(sample))):
+                return col, delim
+    return None
+
+
 def _to_transactions(df: pd.DataFrame) -> List[set]:
+    basket = _detect_basket_column(df)
+    if basket is not None:
+        col, delim = basket
+        transactions: List[set] = []
+        for value in df[col]:
+            if pd.isna(value):
+                continue
+            items = {tok.strip() for tok in str(value).split(delim) if tok.strip()}
+            if items:
+                transactions.append(items)
+        if transactions:
+            return transactions
     work = df.copy()
-    transactions: List[set] = []
+    transactions = []
     for _, row in work.iterrows():
         items = set()
         for col, value in row.items():
@@ -1335,6 +1418,8 @@ def _to_transactions(df: pd.DataFrame) -> List[set]:
 
 def _build_rule_transactions(prepared: PreparedData) -> List[set]:
     work = prepared.X.copy()
+    if _detect_basket_column(work) is not None:
+        return _to_transactions(work)
     for col in work.select_dtypes(include=[np.number]).columns:
         series = pd.to_numeric(work[col], errors="coerce")
         if series.notna().sum() >= 4:
@@ -1433,7 +1518,13 @@ def _evaluate_association_rules(
         metrics,
         normalized,
         {"rule_miner": metrics},
-        {"transaction_count": len(transactions), "metric_note": metric_note},
+        {
+            "transaction_count": len(transactions),
+            "metric_note": metric_note,
+            "model_family": "association rule miner",
+            "models": ["pairwise_apriori_baseline"],
+            "baselines": ["pairwise_support_confidence_lift"],
+        },
         "unsupervised",
         summary,
         0.0,

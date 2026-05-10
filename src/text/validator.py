@@ -7,7 +7,7 @@ from .columns import REQUIRED_COLUMN_KEYS, _SUPPORTED_COL_KEYS, resolve_columns
 from .config import SUPPORTED_TASK_TYPES, VALID_TASK_TYPES, default_metric_for_task, normalize_task_type, valid_metrics_for_task
 from .profiler import annotation_validity_summary
 
-SUPPORTED_TEXT_EXTENSIONS = {".csv", ".xlsx", ".xls"}
+SUPPORTED_TEXT_EXTENSIONS = {".csv", ".xlsx", ".xls", ".json", ".jsonl", ".ndjson", ".zip"}
 
 _TASK_FRIENDLY = {
     "classification_single": "text classification (single-label)",
@@ -55,8 +55,8 @@ def validate_text_file(path: Path) -> List[str]:
         return [f"File does not exist: {path}"]
     if path.suffix.lower() not in SUPPORTED_TEXT_EXTENSIONS:
         errors.append(
-            "The text modality requires a structured CSV or Excel file (.csv, .xlsx, .xls). "
-            "Please upload a file with one text sample per row."
+            "The text modality requires one of CSV/Excel (.csv, .xlsx, .xls), "
+            "JSON / JSONL (.json, .jsonl, .ndjson), or a TXT document folder ZIP (.zip)."
         )
     return errors
 

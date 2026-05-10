@@ -394,7 +394,76 @@ class ReportViewMixin:
             kv_row(c, "Multicollinearity",
                    "Yes" if prof.get("has_multicollinearity") else "No")
 
+        sp = report.get("structure_profile") or {}
+        ps = report.get("parsing_summary") or {}
+        show_sp = bool(sp and sp.get("input_format") and sp.get("input_format") not in {"", "csv_excel", "zip_folder", "image_folder_zip"})
+        show_ps = bool(ps and any(v for v in ps.values()))
+        if show_sp or show_ps:
+            sec_hdr("2b  Structure Profile & Parsing Summary")
+            c = _card(scroll)
+            c.pack(fill="x", padx=P, pady=(0, 4))
+            if sp.get("detected_record_path"):
+                kv_row(c, "Detected record path", str(sp["detected_record_path"]))
+            if sp.get("input_format"):
+                kv_row(c, "Parsed input format", str(sp["input_format"]))
+            if sp.get("original_record_count"):
+                kv_row(c, "Original records", str(sp["original_record_count"]))
+            if sp.get("parsed_record_count"):
+                kv_row(c, "Parsed records", str(sp["parsed_record_count"]))
+            if sp.get("invalid_record_count"):
+                kv_row(c, "Invalid records", str(sp["invalid_record_count"]))
+            if sp.get("max_nesting_depth"):
+                kv_row(c, "Max nesting depth", str(sp["max_nesting_depth"]))
+            if sp.get("average_nesting_depth"):
+                kv_row(c, "Avg nesting depth", f"{float(sp['average_nesting_depth']):.2f}")
+            if sp.get("flattened_column_count"):
+                kv_row(c, "Flattened columns", str(sp["flattened_column_count"]))
+            if sp.get("schema_variant_count"):
+                kv_row(c, "Schema variants", str(sp["schema_variant_count"]))
+            field_counts = []
+            if sp.get("object_field_count"):
+                field_counts.append(f"object={sp['object_field_count']}")
+            if sp.get("array_field_count"):
+                field_counts.append(f"array={sp['array_field_count']}")
+            if sp.get("scalar_field_count"):
+                field_counts.append(f"scalar={sp['scalar_field_count']}")
+            if field_counts:
+                kv_row(c, "Field breakdown", ", ".join(field_counts))
+            if sp.get("type_inconsistency_count"):
+                kv_row(c, "Type inconsistencies", str(sp["type_inconsistency_count"]))
+            if ps.get("conversion_strategy"):
+                kv_row(c, "Conversion strategy", str(ps["conversion_strategy"]))
+            if ps.get("rows_read") is not None:
+                kv_row(c, "Rows read", str(ps["rows_read"]))
+            if ps.get("records_parsed") is not None:
+                kv_row(c, "Records parsed", str(ps["records_parsed"]))
+            if ps.get("columns_before_flatten"):
+                kv_row(c, "Columns before flatten", str(ps["columns_before_flatten"]))
+            if ps.get("columns_after_flatten"):
+                kv_row(c, "Columns after flatten", str(ps["columns_after_flatten"]))
+            if ps.get("nesting_strategy"):
+                kv_row(c, "Nesting strategy", str(ps["nesting_strategy"]))
+            if ps.get("array_handling"):
+                kv_row(c, "Array handling", str(ps["array_handling"]))
+            if ps.get("dropped_count"):
+                kv_row(c, "Dropped records", str(ps["dropped_count"]))
+            parser_warnings = report.get("parser_warnings") or sp.get("parser_warnings") or ps.get("warnings") or []
+            if parser_warnings:
+                preview = "; ".join(str(w) for w in parser_warnings[:5])
+                if len(parser_warnings) > 5:
+                    preview += f"  (+{len(parser_warnings) - 5} more)"
+                kv_row(c, "Parser warnings", preview)
+            remaining_ps = {k: v for k, v in ps.items()
+                           if k not in {"conversion_strategy", "rows_read", "records_parsed",
+                                        "columns_before_flatten", "columns_after_flatten",
+                                        "nesting_strategy", "array_handling", "dropped_count",
+                                        "warnings"} and v}
+            for key, val in remaining_ps.items():
+                label = key.replace("_", " ").capitalize()
+                kv_row(c, label, str(val))
+
         if is_image:
+
             _add_chart("_c_comp", "Class distribution")
             _add_chart("_c_qual", "Image quality flags")
             _add_chart("_c_dims", "Image dimension statistics")

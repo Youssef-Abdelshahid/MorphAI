@@ -31,6 +31,13 @@ def generate_explanation(
     ]
     if best.get("evaluation_mode"):
         lines.append(f"Evaluation mode: {best['evaluation_mode']}.")
+    evaluator_details = best.get("evaluator_details") or {}
+    if evaluator_details.get("model_family"):
+        lines.append(f"Evaluator family: {evaluator_details['model_family']}.")
+    if evaluator_details.get("models"):
+        lines.append(f"Models used: {', '.join(str(m) for m in evaluator_details['models'])}.")
+    if evaluator_details.get("baselines"):
+        lines.append(f"Baselines: {', '.join(str(b) for b in evaluator_details['baselines'])}.")
     if best.get("evaluation_summary"):
         lines.append(best["evaluation_summary"])
     if task_context:
@@ -322,6 +329,13 @@ def print_final_summary(
         print("  Per-model   : " + "  ".join(f"{name}={values.get(metric, 0.0):.4f}" for name, values in best["per_model_metrics"].items()))
     if best.get("evaluation_mode"):
         print(f"  Eval mode   : {best['evaluation_mode']}")
+    ed = best.get("evaluator_details") or {}
+    if ed.get("model_family"):
+        print(f"  Eval family : {ed['model_family']}")
+    if ed.get("models"):
+        print(f"  Models used : {', '.join(str(m) for m in ed['models'])}")
+    if ed.get("baselines"):
+        print(f"  Baselines   : {', '.join(str(b) for b in ed['baselines'])}")
     if best.get("evaluation_summary"):
         print(f"  Summary     : {best['evaluation_summary']}")
     tc = config.task_context()

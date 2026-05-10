@@ -520,7 +520,17 @@ class RunViewMixin:
         self._record_path_frame = ctk.CTkFrame(cfg_card, fg_color="transparent")
         rp_row = ctk.CTkFrame(self._record_path_frame, fg_color="transparent")
         rp_row.pack(fill="x", padx=14, pady=(2, 6))
-        _opt_label(rp_row, "Record path")
+        rp_lbl_wrap = ctk.CTkFrame(rp_row, fg_color="transparent")
+        rp_lbl_wrap.pack(side="left")
+        self._record_path_label = ctk.CTkLabel(
+            rp_lbl_wrap, text="Record path",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=TXT_MUTED, width=140, anchor="w",
+        )
+        self._record_path_label.pack(side="left")
+        ctk.CTkLabel(rp_lbl_wrap, text=" optional",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                     text_color=TXT_MUTED).pack(side="left")
         self._record_path_var = ctk.StringVar(value="")
         self._record_path_entry = ctk.CTkEntry(
             rp_row, textvariable=self._record_path_var,
@@ -724,6 +734,40 @@ class RunViewMixin:
                         "Upload YAML containing a list of records or an object containing a records list."
                     )
                     show_rp = True
+            elif modality == "Audio":
+                if fmt.key == "zip_folder":
+                    help_text = "Upload a ZIP containing audio files. For classification, use one folder per class."
+                elif fmt.key == "metadata_csv":
+                    help_text = (
+                        "Upload a ZIP containing audio files and a CSV metadata file. The metadata must "
+                        "include audio paths and the required labels/references for the selected task."
+                    )
+                    show_rp = True
+                elif fmt.key == "metadata_json":
+                    help_text = (
+                        "Upload a ZIP containing audio files and JSON / JSONL metadata records. Each record "
+                        "should reference an audio file and include the required labels/references for the "
+                        "selected task. Use the record path for nested record lists."
+                    )
+                    show_rp = True
+            elif modality == "Text":
+                if fmt.key == "csv_excel":
+                    help_text = (
+                        "Upload a CSV or Excel file with one sample per row. "
+                        "Enter the exact text column names and required target/reference/annotation column names."
+                    )
+                elif fmt.key == "json_text_records":
+                    help_text = (
+                        "Upload JSON/JSONL text records. The data should contain a list of objects "
+                        "or an object containing a records list."
+                    )
+                    show_rp = True
+                elif fmt.key == "txt_zip":
+                    help_text = (
+                        "Upload a ZIP containing text documents. For classification, use one folder per "
+                        "class or include a metadata file (CSV/JSON) with labels."
+                    )
+                    show_rp = True
             elif modality == "Image":
                 if fmt.key == "zip_folder":
                     help_text = "Upload a ZIP containing image files. For classification, use one folder per class."
@@ -749,6 +793,18 @@ class RunViewMixin:
                     rp_frame.pack(fill="x", before=self._csv_task_frame)
                 else:
                     rp_frame.pack_forget()
+            rp_label = getattr(self, "_record_path_label", None)
+            rp_entry = getattr(self, "_record_path_entry", None)
+            if modality == "Text" and fmt.key == "txt_zip":
+                if rp_label is not None:
+                    rp_label.configure(text="Metadata file")
+                if rp_entry is not None:
+                    rp_entry.configure(placeholder_text="optional — e.g.  metadata.csv  |  labels/metadata.json")
+            else:
+                if rp_label is not None:
+                    rp_label.configure(text="Record path")
+                if rp_entry is not None:
+                    rp_entry.configure(placeholder_text="optional — e.g.  records  |  data.items  |  person")
 
     def _on_csv_task_change(self, task: str) -> None:
         self._csv_task_frame.pack_forget()
@@ -1217,6 +1273,15 @@ class RunViewMixin:
             result["auxiliary_feature_columns"] = aux_cols
             result["binary_label_columns"] = binary_cols
             result["multilabel_format"] = multilabel_format
+
+            fmt_key = result.get("input_format_key", "")
+            if fmt_key == "txt_zip":
+                result["metadata_path"] = record_path
+                result["record_path"] = ""
+            elif fmt_key == "json_text_records":
+                result["metadata_path"] = ""
+            else:
+                result["metadata_path"] = ""
 
         return result
 

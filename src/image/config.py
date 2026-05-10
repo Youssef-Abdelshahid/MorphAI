@@ -7,10 +7,10 @@ OBJECT_DETECTION_METRICS = ["map", "map_50", "precision", "recall", "mean_iou"]
 SEMANTIC_SEGMENTATION_METRICS = ["mean_iou", "pixel_accuracy", "dice_score"]
 INSTANCE_SEGMENTATION_METRICS = ["mask_map", "mask_iou", "dice_score", "precision", "recall"]
 KEYPOINT_METRICS = ["pck", "oks_map", "normalized_keypoint_error"]
-RETRIEVAL_METRICS = ["recall_at_k", "precision_at_k", "map", "mrr", "proxy_score"]
-ANOMALY_METRICS = ["auroc", "auprc", "f1", "precision", "recall", "pixel_iou", "proxy_score"]
+RETRIEVAL_METRICS = ["recall_at_k", "precision_at_k", "map", "mrr"]
+ANOMALY_METRICS = ["auroc", "auprc", "f1", "precision", "recall", "proxy_score"]
 OCR_METRICS = ["normalized_edit_similarity", "exact_match_accuracy", "cer", "wer"]
-GENERATION_METRICS = ["clip_similarity", "ssim", "psnr", "fid", "lpips", "proxy_score"]
+GENERATION_METRICS = ["clip_similarity", "ssim", "psnr", "fid", "lpips"]
 DEPTH_METRICS = ["delta_accuracy", "rmse", "mae", "abs_rel"]
 
 _IMG_TASK_BACKEND = {

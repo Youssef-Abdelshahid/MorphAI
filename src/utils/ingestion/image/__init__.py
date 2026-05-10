@@ -12,7 +12,6 @@ from src.utils.ingestion.image.internal import (
     has_keypoints,
     has_text_labels,
     has_depth_targets,
-    export_internal_annotations_zip,
 )
 
 
@@ -47,5 +46,4 @@ __all__ = [
     "has_keypoints",
     "has_text_labels",
     "has_depth_targets",
-    "export_internal_annotations_zip",
 ]

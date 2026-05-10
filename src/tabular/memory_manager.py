@@ -16,6 +16,22 @@ _MEMORY_SCHEMA_VERSION = 4
 _SCORE_SYSTEM = "normalized_v2"
 
 
+def _safe_default(value: Any) -> Any:
+    try:
+        import numpy as _np
+        if isinstance(value, _np.ndarray):
+            return value.tolist()
+        if isinstance(value, _np.generic):
+            return value.item()
+    except Exception:
+        pass
+    if isinstance(value, (set, frozenset)):
+        return sorted(value)
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
 def _profile_features(profile_summary: dict) -> Dict[str, float]:
     return {
         "missing_ratio": float(profile_summary.get("missing_ratio", 0.0)),
@@ -78,7 +94,8 @@ class MemoryManager:
 
     def save(self) -> None:
         MEMORY_DIR.mkdir(parents=True, exist_ok=True)
-        with open(MEMORY_FILE, "w", encoding="utf-8") as fh:
+        tmp = MEMORY_FILE.with_suffix(MEMORY_FILE.suffix + ".tmp")
+        with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(
                 {
                     "schema_version": _MEMORY_SCHEMA_VERSION,
@@ -87,7 +104,9 @@ class MemoryManager:
                 },
                 fh,
                 indent=2,
+                default=_safe_default,
             )
+        tmp.replace(MEMORY_FILE)
 
     def _current_features(self, profile: DataProfile) -> Dict[str, float]:
         return _profile_features({

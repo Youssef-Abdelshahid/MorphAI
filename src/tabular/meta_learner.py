@@ -34,6 +34,27 @@ _SCALER_MAP    = {"none": 0, "standard": 1, "minmax": 2, "robust": 3}
 _ENCODER_MAP   = {"onehot": 0, "ordinal": 1}
 _IMBALANCE_MAP = {"none": 0, "oversample": 1, "smote": 2}
 
+_INPUT_FORMAT_MAP = {
+    "csv_excel": 0,
+    "json_records": 1,
+    "xml_records": 2,
+    "yaml_records": 3,
+}
+_INPUT_FORMAT_LABEL_MAP = {
+    "csv / excel": 0,
+    "csv": 0,
+    "excel": 0,
+    "json / jsonl records": 1,
+    "json": 1,
+    "jsonl": 1,
+    "xml records": 2,
+    "xml": 2,
+    "yaml records": 3,
+    "yaml": 3,
+    "yml": 3,
+}
+_META_INPUT_FORMAT_WEIGHT = 0.05
+
 _FE_BUDGET_MAP = {
     "minimal":  0.0,
     "light":    0.33,
@@ -71,6 +92,17 @@ def _encode_data_quality(data_quality_norm: str) -> float:
 
 def _encode_supervision(supervision: str) -> float:
     return 1.0 if supervision == "supervised" else 0.0
+
+
+def _encode_input_format(task_context: dict) -> float:
+    raw_key = (task_context.get("input_format_key") or "").strip().lower()
+    if raw_key in _INPUT_FORMAT_MAP:
+        idx = _INPUT_FORMAT_MAP[raw_key]
+    else:
+        label = (task_context.get("input_format") or "").strip().lower()
+        idx = _INPUT_FORMAT_LABEL_MAP.get(label, 0)
+    denom = max(len(_INPUT_FORMAT_MAP) - 1, 1)
+    return _META_INPUT_FORMAT_WEIGHT * (idx / denom)
 
 
 def _encode_task_type_bin(task_type: str) -> float:
@@ -143,6 +175,7 @@ def _build_feature_vector(
         _encode_data_quality(task_context.get("data_quality_norm", "unknown")),
         _encode_supervision(task_context.get("supervision", "supervised")),
         _encode_task_type_bin(task_context.get("task_type", "")),
+        _encode_input_format(task_context),
     ]
     return task_feats + _profile_features(profile_summary) + _pipeline_features(pipeline_dict)
 

@@ -82,6 +82,11 @@ class TextProfile:
     emoji_translated_count: int = 0
     emoji_removed_count: int = 0
     removed_excessive_emoji_count: int = 0
+    input_format: str = ""
+    structure_profile: Dict[str, object] = field(default_factory=dict)
+    parsing_summary: Dict[str, object] = field(default_factory=dict)
+    parser_warnings: List[str] = field(default_factory=list)
+    field_availability: Dict[str, bool] = field(default_factory=dict)
 
 
 def _tokens(text: str) -> List[str]:

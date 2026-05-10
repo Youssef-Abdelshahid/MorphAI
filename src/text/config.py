@@ -134,6 +134,9 @@ class TextConfig:
     notes: str = ""
     modality: str = "Text"
     input_format: str = ""
+    input_format_key: str = ""
+    record_path: str = ""
+    metadata_path: str = ""
     language: str = ""
     text_source: str = ""
     text_length: str = ""
@@ -171,6 +174,9 @@ class TextConfig:
             "notes": self.notes,
             "modality": self.modality,
             "input_format": self.input_format,
+            "input_format_key": self.input_format_key,
+            "record_path": self.record_path,
+            "metadata_path": self.metadata_path,
             "language": self.language,
             "text_source": self.text_source,
             "text_length": self.text_length,

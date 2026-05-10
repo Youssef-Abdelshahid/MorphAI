@@ -7,7 +7,7 @@ import numpy as np
 
 MEMORY_DIR = Path("memory") / "audio"
 META_LEARNER_FILE = MEMORY_DIR / "meta_learner.pkl"
-_SCORE_SYSTEM = "normalized_audio_v1"
+_SCORE_SYSTEM = "normalized_audio_v2"
 
 MIN_RUNS_TO_USE = 5
 MIN_RUNS_FULL_WEIGHT = 20
@@ -18,6 +18,7 @@ _TASK_MAP = {name: i for i, name in enumerate(_TASKS)}
 _FEAT_MAP = {"mfcc": 0, "mel_spectrogram": 1, "log_mel_spectrogram": 2, "raw_waveform": 3}
 _NORM_MAP = {"none": 0, "rms": 1, "peak": 2}
 _NOISE_MAP = {"none": 0, "highpass": 1, "spectral_gate": 2}
+_FORMAT_MAP = {"zip_folder": 0, "metadata_csv": 1, "metadata_json": 2, "audio_folder_zip": 0}
 
 
 def _encode_task(task_type: str) -> float:
@@ -37,6 +38,14 @@ def _profile_features(summary: dict) -> List[float]:
         float(summary.get("estimated_noise_ratio", 0.0)),
         min(len(summary.get("sample_rate_distribution", {})), 10) / 10.0,
         min(len(summary.get("channel_count_distribution", {})), 10) / 10.0,
+        _FORMAT_MAP.get((summary.get("input_format") or "zip_folder"), 0) / max(len(_FORMAT_MAP) - 1, 1),
+        float(bool(summary.get("has_class_labels"))),
+        float(bool(summary.get("has_transcripts"))),
+        float(bool(summary.get("has_speaker_labels"))),
+        float(bool(summary.get("has_speaker_pairs"))),
+        float(bool(summary.get("has_temporal_segments"))),
+        float(bool(summary.get("has_anomaly_labels"))),
+        float(bool(summary.get("has_noisy_clean_pairs"))),
     ]
 
 

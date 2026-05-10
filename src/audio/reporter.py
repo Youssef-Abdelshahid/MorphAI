@@ -60,6 +60,13 @@ def generate_explanation(profile: AudioProfile, best: Dict[str, Any], metric: st
         f"The best audio pipeline scored {raw.get(selected_metric, 0.0):.4f} {metric_label(selected_metric)} with a normalized score of {normalized:.4f}.",
         f"Evaluation mode: {best.get('evaluation_mode', 'unknown')}.",
     ]
+    evaluator_details = best.get("evaluator_details") or {}
+    if evaluator_details.get("model_family"):
+        lines.append(f"Evaluator family: {evaluator_details['model_family']}.")
+    if evaluator_details.get("models"):
+        lines.append(f"Models used: {', '.join(str(m) for m in evaluator_details['models'])}.")
+    if evaluator_details.get("baselines"):
+        lines.append(f"Baselines: {', '.join(str(b) for b in evaluator_details['baselines'])}.")
     if best.get("evaluation_summary"):
         lines.append(best["evaluation_summary"])
     lines.append("")
@@ -109,9 +116,23 @@ def generate_report(profile: AudioProfile, results: List[Dict[str, Any]], best: 
     return {
         "timestamp": datetime.now().isoformat(),
         "modality": "Audio",
-        "config": {"data_path": str(config.data_path), "metric": config.metric, "modality": config.modality, "input_format": getattr(config, "input_format", "")},
+        "config": {
+            "data_path": str(config.data_path),
+            "metric": config.metric,
+            "modality": config.modality,
+            "input_format": getattr(config, "input_format", ""),
+            "input_format_key": getattr(config, "input_format_key", ""),
+            "metadata_path": getattr(config, "metadata_path", ""),
+            "record_path": getattr(config, "record_path", ""),
+            "field_overrides": dict(getattr(config, "field_overrides", {}) or {}),
+        },
         "task_context": tc,
         "profile_summary": profile_dict,
+        "metadata_profile": dict(getattr(profile, "metadata_profile", {}) or {}),
+        "parsing_summary": dict(getattr(profile, "parsing_summary", {}) or {}),
+        "structure_profile": dict(getattr(profile, "structure_profile", {}) or {}),
+        "annotation_or_reference_profile": dict(getattr(profile, "annotation_or_reference_profile", {}) or {}),
+        "parser_warnings": list(getattr(profile, "parser_warnings", []) or []),
         "audio_meta_features": audio_meta_features(profile, config.task_type, selected_metric, best["spec"].to_dict()),
         "pipelines_tested": len(results),
         "n_models": best.get("n_models", 1),
@@ -162,17 +183,27 @@ def generate_report(profile: AudioProfile, results: List[Dict[str, Any]], best: 
         },
         "audio_report_sections": {
             "dataset_overview": {"files": profile.n_audio_files, "total_duration_sec": profile.total_duration_sec},
+            "input_format": getattr(config, "input_format_key", "") or getattr(config, "input_format", ""),
+            "input_format_label": getattr(config, "input_format", ""),
+            "selected_metadata_path": getattr(config, "metadata_path", ""),
+            "selected_record_path": getattr(config, "record_path", ""),
+            "field_mapping": dict(getattr(config, "field_overrides", {}) or {}),
             "duration_statistics": profile.duration_distribution,
             "sampling_rate_distribution": profile.sample_rate_distribution,
             "channel_distribution": profile.channel_count_distribution,
             "file_format_distribution": profile.file_format_distribution,
             "quality_counts": {"corrupted": profile.n_corrupt, "silent": profile.n_silent, "clipped": profile.n_clipped},
             "label_distribution": profile.label_distribution,
+            "task_specific_metadata_profile": dict(getattr(profile, "annotation_or_reference_profile", {}) or {}),
+            "metadata_parsing_summary": dict(getattr(profile, "parsing_summary", {}) or {}),
+            "metadata_profile": dict(getattr(profile, "metadata_profile", {}) or {}),
+            "structure_profile": dict(getattr(profile, "structure_profile", {}) or {}),
             "preprocessing_strategies_tested": [r["spec"].to_dict() for r in sorted_results],
             "best_selected_pipeline": best["spec"].to_dict(),
             "task_specific_raw_metrics": best.get("raw_metrics", best["metrics"]),
             "normalized_score": best.get("normalized_score", best.get("final_score")),
             "evaluation_mode": best.get("evaluation_mode", ""),
+            "output_artifact_format": "zip_with_wav_class_folders_metadata_csv_metadata_json_readme",
         },
         "explanation": generate_explanation(profile, best, selected_metric, task_context=tc, meta_status=meta_status, mem_influence=mem_influence),
         "learning_summary": learning_summary,

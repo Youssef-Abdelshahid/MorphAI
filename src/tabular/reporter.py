@@ -33,6 +33,16 @@ def generate_explanation(
     ]
     if evaluation_mode:
         lines.append(f"Evaluation mode: {evaluation_mode}.")
+    evaluator_details = best.get("evaluator_details") or {}
+    family = evaluator_details.get("model_family")
+    used_models = evaluator_details.get("models")
+    baselines = evaluator_details.get("baselines")
+    if family:
+        lines.append(f"Evaluator family: {family}.")
+    if used_models:
+        lines.append(f"Models used: {', '.join(str(m) for m in used_models)}.")
+    if baselines:
+        lines.append(f"Baselines: {', '.join(str(b) for b in baselines)}.")
     if best.get("evaluation_summary"):
         lines.append(best["evaluation_summary"])
 
@@ -349,12 +359,28 @@ def generate_report(
     }
 
 
+def _json_safe(value: Any) -> Any:
+    try:
+        import numpy as _np
+        if isinstance(value, _np.ndarray):
+            return value.tolist()
+        if isinstance(value, _np.generic):
+            return value.item()
+    except Exception:
+        pass
+    if isinstance(value, (set, frozenset)):
+        return sorted(value)
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
 def save_report(report: dict) -> Path:
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
     path = REPORTS_DIR / f"report_{ts}.json"
     with open(path, "w", encoding="utf-8") as fh:
-        json.dump(report, fh, indent=2)
+        json.dump(report, fh, indent=2, default=_json_safe)
     return path
 
 
@@ -445,6 +471,13 @@ def print_final_summary(
               + "  ".join(f"{mn}={mv.get(metric, 0):.4f}" for mn, mv in pmt.items()))
     if best.get("evaluation_mode"):
         print(f"  Eval mode   : {best['evaluation_mode']}")
+    ed = best.get("evaluator_details") or {}
+    if ed.get("model_family"):
+        print(f"  Eval family : {ed['model_family']}")
+    if ed.get("models"):
+        print(f"  Models used : {', '.join(str(m) for m in ed['models'])}")
+    if ed.get("baselines"):
+        print(f"  Baselines   : {', '.join(str(b) for b in ed['baselines'])}")
     if best.get("evaluation_summary"):
         print(f"  Summary     : {best['evaluation_summary']}")
 

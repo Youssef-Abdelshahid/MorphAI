@@ -348,6 +348,10 @@ class App(
                 channel_layout=ctx.get("channel_layout", ""),
                 sample_rate=ctx.get("sample_rate", ""),
                 input_format=ctx.get("input_format", ""),
+                input_format_key=ctx.get("input_format_key", "zip_folder"),
+                metadata_path=ctx.get("metadata_path", ""),
+                record_path=ctx.get("record_path", ""),
+                field_overrides=ctx.get("audio_field_overrides", {}) or {},
             )
             self._thread = threading.Thread(target=worker.run, daemon=True)
             self._thread.start()
@@ -385,6 +389,9 @@ class App(
                 multilabel_format=ctx.get("multilabel_format", "single_column"),
                 binary_label_columns=ctx.get("binary_label_columns") or [],
                 input_format=ctx.get("input_format", ""),
+                input_format_key=ctx.get("input_format_key", "csv_excel"),
+                record_path=ctx.get("record_path", ""),
+                metadata_path=ctx.get("metadata_path", ""),
             )
             self._thread = threading.Thread(target=worker.run, daemon=True)
             self._thread.start()

@@ -420,7 +420,7 @@ def _evaluate_ner(spec, df, profile, task_type, metric_priority):
     summary = "Explicit fallback NER evaluation used a train/test entity surface lexicon baseline and preserved text alignment."
     if note:
         summary += " " + note
-    return raw, {}, {"entity_lexicon_baseline": raw}, selected, {"model_family": "rule/token baseline fallback", "baseline": "entity surface lexicon", "fusion_used": False}, "fallback", summary, 1
+    return raw, {}, {"entity_lexicon_baseline": raw}, selected, {"model_family": "rule/token baseline fallback", "models": ["entity_lexicon_baseline"], "baselines": ["entity_surface_lexicon"], "fusion_used": False}, "proxy", summary, 1
 
 
 def _evaluate_pos(spec, df, profile, task_type, metric_priority):
@@ -454,7 +454,7 @@ def _evaluate_pos(spec, df, profile, task_type, metric_priority):
     summary = "Explicit fallback POS evaluation used a majority tag dictionary baseline with token/tag alignment preserved."
     if note:
         summary += " " + note
-    return raw, {}, {"majority_tag_dictionary": raw}, selected, {"model_family": "tag dictionary fallback", "baseline": "token majority tags", "fusion_used": False}, "fallback", summary, 1
+    return raw, {}, {"majority_tag_dictionary": raw}, selected, {"model_family": "tag dictionary fallback", "models": ["majority_tag_dictionary"], "baselines": ["token_majority_tag"], "fusion_used": False}, "proxy", summary, 1
 
 
 def _evaluate_relation(spec, df, profile, task_type, metric_priority):
@@ -509,7 +509,7 @@ def _evaluate_similarity(spec, df, profile, task_type, metric_priority):
     summary = "Semantic similarity used TF-IDF cosine similarity over text pairs."
     if note:
         summary += " " + note
-    return raw, {}, {"tfidf_cosine_similarity": raw}, selected, {"model_family": "tfidf cosine similarity baseline", "mode": "scored_pairs", "fusion_used": False}, "supervised", summary, 1
+    return raw, {}, {"tfidf_cosine_similarity": raw}, selected, {"model_family": "tfidf cosine similarity baseline", "models": ["tfidf_cosine_similarity"], "baselines": ["TFIDF_cosine"], "mode": "scored_pairs", "fusion_used": False}, "supervised", summary, 1
 
 
 def _ngrams(tokens: List[str], n: int) -> Counter:
@@ -559,7 +559,7 @@ def _evaluate_summarization(spec, df, profile, task_type, metric_priority):
     summary = "Summarization used an explicit lead-N extractive baseline."
     if note:
         summary += " " + note
-    return raw, {}, {"lead_n_extractive_baseline": raw}, selected, {"model_family": "extractive summarization baseline", "baseline": "lead_n", "fusion_used": False}, "fallback", summary, 1
+    return raw, {}, {"lead_n_extractive_baseline": raw}, selected, {"model_family": "extractive summarization baseline", "models": ["lead_n_extractive_baseline"], "baselines": ["lead_n_extractor", "rouge_overlap"], "fusion_used": False}, "proxy", summary, 1
 
 
 def _token_f1(pred: str, ref: str) -> float:
@@ -599,7 +599,7 @@ def _evaluate_qa(spec, df, profile, task_type, metric_priority):
     summary = "Question answering used an explicit lexical overlap span/sentence baseline."
     if note:
         summary += " " + note
-    return raw, {}, {"lexical_overlap_span_baseline": raw}, selected, {"model_family": "extractive QA fallback", "baseline": "lexical_overlap_sentence", "fusion_used": False}, "fallback", summary, 1
+    return raw, {}, {"lexical_overlap_span_baseline": raw}, selected, {"model_family": "extractive QA fallback", "models": ["lexical_overlap_span_baseline"], "baselines": ["lexical_overlap_sentence"], "fusion_used": False}, "proxy", summary, 1
 
 
 def _evaluate_generation(spec, df, profile, task_type, metric_priority):
@@ -616,7 +616,7 @@ def _evaluate_generation(spec, df, profile, task_type, metric_priority):
     summary = "Text generation used an explicit prompt-tail copy baseline against reference completions."
     if note:
         summary += " " + note
-    return raw, {}, {"prompt_tail_copy_baseline": raw}, selected, {"model_family": "generation fallback baseline", "baseline": "prompt_tail_copy", "fusion_used": False}, "fallback", summary, 1
+    return raw, {}, {"prompt_tail_copy_baseline": raw}, selected, {"model_family": "generation fallback baseline", "models": ["prompt_tail_copy_baseline"], "baselines": ["prompt_tail_copy", "ngram_overlap"], "fusion_used": False}, "proxy", summary, 1
 
 
 def _evaluate_topic_modeling(spec, df, profile, task_type, metric_priority):
@@ -647,7 +647,7 @@ def _evaluate_topic_modeling(spec, df, profile, task_type, metric_priority):
     summary = "Topic modeling used an NMF topic model over TF-IDF features."
     if note:
         summary += " " + note
-    return raw, {}, {"nmf_topic_model": raw}, selected, {"model_family": "NMF topic model", "n_topics": int(nmf.n_components), "fusion_used": False}, "unsupervised", summary, 1
+    return raw, {}, {"nmf_topic_model": raw}, selected, {"model_family": "NMF topic model", "models": ["nmf_topic_model"], "baselines": ["NMF"], "n_topics": int(nmf.n_components), "fusion_used": False}, "unsupervised", summary, 1
 
 
 def evaluate_pipeline(spec: TextPipelineSpec, df: pd.DataFrame, profile: TextProfile, task_type: str, metric_priority: str) -> Dict:

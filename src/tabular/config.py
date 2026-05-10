@@ -228,6 +228,7 @@ class Config:
             "notes": self.notes,
             "modality": self.modality,
             "input_format": self.input_format,
+            "input_format_key": self.input_format_key,
             "fe_budget": self.fe_budget,
             "fe_budget_norm": self.fe_budget_norm,
             "data_quality": self.data_quality,

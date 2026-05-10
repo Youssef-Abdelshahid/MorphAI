@@ -13,8 +13,8 @@ META_LEARNER_FILE = MEMORY_DIR / "meta_learner.pkl"
 
 _SIMILARITY_THRESHOLD = 0.60
 GOOD_SCORE_THRESHOLD = 0.60
-_MEMORY_SCHEMA_VERSION = 1
-_SCORE_SYSTEM = "normalized_audio_v1"
+_MEMORY_SCHEMA_VERSION = 2
+_SCORE_SYSTEM = "normalized_audio_v2"
 
 
 def audio_meta_features(profile: AudioProfile, task_type: str = "", selected_metric: str = "", pipeline: Optional[dict] = None) -> Dict[str, Any]:
@@ -37,6 +37,14 @@ def audio_meta_features(profile: AudioProfile, task_type: str = "", selected_met
         "supervision_type": "unsupervised" if task_type == "anomaly" and not profile.has_labels else "supervised",
         "selected_metric": selected_metric,
         "preprocessing_pipeline_components": pipeline or {},
+        "input_format": getattr(profile, "input_format", "") or "audio_folder_zip",
+        "has_class_labels": bool(getattr(profile, "has_class_labels_flag", profile.has_labels)),
+        "has_transcripts": bool(getattr(profile, "has_transcripts_flag", profile.transcript_count > 0)),
+        "has_speaker_labels": bool(getattr(profile, "has_speaker_labels_flag", False)),
+        "has_speaker_pairs": bool(getattr(profile, "has_speaker_pairs_flag", False)),
+        "has_temporal_segments": bool(getattr(profile, "has_temporal_segments_flag", False)),
+        "has_anomaly_labels": bool(getattr(profile, "has_anomaly_labels_flag", False)),
+        "has_noisy_clean_pairs": bool(getattr(profile, "has_noisy_clean_pairs_flag", False)),
     }
 
 
@@ -172,12 +180,14 @@ class AudioMemoryManager:
             for i, r in enumerate(sorted_results)
         ]
         now = datetime.now()
+        input_format_key = getattr(config, "input_format_key", "") or "zip_folder"
         record = {
             "id": now.strftime("%Y%m%d_%H%M%S_%f"),
             "timestamp": now.isoformat(),
             "schema_version": _MEMORY_SCHEMA_VERSION,
             "score_system": _SCORE_SYSTEM,
             "modality": "audio",
+            "input_format": input_format_key,
             "dataset": config.data_path.name,
             "task_type": config.task_type,
             "metric_priority": config.metric,
@@ -188,12 +198,18 @@ class AudioMemoryManager:
             "evaluation_mode": best.get("evaluation_mode", ""),
             "evaluator_details": best.get("evaluator_details", {}),
             "profile_summary": summary,
+            "metadata_profile": dict(getattr(profile, "metadata_profile", {}) or {}),
+            "parsing_summary": dict(getattr(profile, "parsing_summary", {}) or {}),
+            "selected_metadata_path": getattr(config, "metadata_path", "") or "",
+            "selected_record_path": getattr(config, "record_path", "") or "",
+            "field_overrides": dict(getattr(config, "field_overrides", {}) or {}),
+            "label_mapping": {str(name): idx for idx, name in enumerate(profile.class_names)},
             "audio_meta_features": audio_meta_features(profile, config.task_type, selected_metric, best_pipeline),
             "selected_pipeline": best_pipeline,
             "best_pipeline": best_pipeline,
             "all_pipelines_tested": all_pipelines,
             "task_context": config.task_context(),
-            "constraints_options": {"constraints": config.constraints, "audio_format": config.audio_format, "channel_layout": config.channel_layout, "sample_rate": config.sample_rate},
+            "constraints_options": {"constraints": config.constraints, "audio_format": config.audio_format, "channel_layout": config.channel_layout, "sample_rate": config.sample_rate, "input_format": input_format_key},
             "run_metadata": {"pipelines_tested": len(results), "meta_learner_status": meta_status or {}, "memory_influence": mem_influence or {}},
             "selection_reasoning": f"Selected by highest normalized score = {normalized_score:.4f} from {metric_label(selected_metric)} = {raw_metrics.get(selected_metric, 0.0):.4f}; tie-broken by complexity then evaluation time.",
         }

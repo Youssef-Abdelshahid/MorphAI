@@ -13,8 +13,8 @@ META_LEARNER_FILE = MEMORY_DIR / "meta_learner.pkl"
 
 _SIMILARITY_THRESHOLD = 0.58
 GOOD_SCORE_THRESHOLD = 0.60
-_MEMORY_SCHEMA_VERSION = 2
-_SCORE_SYSTEM = "normalized_text_v2"
+_MEMORY_SCHEMA_VERSION = 3
+_SCORE_SYSTEM = "normalized_text_v3"
 
 
 def text_meta_features(profile: TextProfile, task_type: str = "", selected_metric: str = "", pipeline: Optional[dict] = None) -> Dict[str, Any]:
@@ -69,6 +69,7 @@ def mixed_feature_meta_features(profile: TextProfile, config: Optional[TextConfi
 
 
 def _features(summary: dict) -> Dict[str, float]:
+    field_av = summary.get("field_availability") or {}
     return {
         "samples": min(math.log10(max(float(summary.get("n_samples", 1)), 1.0)) / 6.0, 1.0),
         "avg_len": min(float(summary.get("avg_token_length", 0.0)) / 1000.0, 1.0),
@@ -84,6 +85,16 @@ def _features(summary: dict) -> Dict[str, float]:
         "has_tabular": float(bool(summary.get("has_tabular_features", False))),
         "n_numeric": min(float(summary.get("num_extra_numeric_cols", 0)), 50.0) / 50.0,
         "n_categorical": min(float(summary.get("num_extra_categorical_cols", 0)), 50.0) / 50.0,
+        "has_labels": float(bool(field_av.get("has_labels", False))),
+        "has_multilabels": float(bool(field_av.get("has_multilabels", False))),
+        "has_entity_annotations": float(bool(field_av.get("has_entity_annotations", False))),
+        "has_pos_tags": float(bool(field_av.get("has_pos_tags", False))),
+        "has_relation_labels": float(bool(field_av.get("has_relation_labels", False))),
+        "has_similarity_pairs": float(bool(field_av.get("has_similarity_pairs", False))),
+        "has_summaries": float(bool(field_av.get("has_summaries", False))),
+        "has_qa_fields": float(bool(field_av.get("has_qa_fields", False))),
+        "has_generation_references": float(bool(field_av.get("has_generation_references", False))),
+        "is_plain_corpus": float(bool(field_av.get("is_plain_corpus", False))),
     }
 
 
@@ -97,6 +108,10 @@ def _profile_summary(profile: TextProfile) -> dict:
     ir = profile.imbalance_ratio
     ir_val = round(ir, 2) if math.isfinite(ir) else 999.9
     return {
+        "input_format": profile.input_format,
+        "structure_profile": dict(profile.structure_profile or {}),
+        "parsing_summary": dict(profile.parsing_summary or {}),
+        "field_availability": dict(profile.field_availability or {}),
         "n_samples": profile.n_samples,
         "columns": profile.columns,
         "task_type": profile.task_type,
@@ -227,6 +242,14 @@ class TextMemoryManager:
             "schema_version": _MEMORY_SCHEMA_VERSION,
             "score_system": _SCORE_SYSTEM,
             "modality": "text",
+            "input_format": getattr(config, "input_format_key", "") or getattr(config, "input_format", "") or "csv_excel",
+            "input_format_label": getattr(config, "input_format", ""),
+            "record_path": getattr(config, "record_path", ""),
+            "metadata_path": getattr(config, "metadata_path", ""),
+            "structure_profile": dict(profile.structure_profile or {}),
+            "parsing_summary": dict(profile.parsing_summary or {}),
+            "parser_warnings": list(profile.parser_warnings or []),
+            "field_availability": dict(profile.field_availability or {}),
             "dataset": config.data_path.name,
             "task_type": config.task_type,
             "metric_priority": config.metric,

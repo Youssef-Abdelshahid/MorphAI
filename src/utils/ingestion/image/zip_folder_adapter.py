@@ -74,6 +74,26 @@ class ZipFolderImageAdapter(BaseFormatAdapter):
 
         image_paths = collect_images(root)
         class_dirs = sorted({p.parent.name for p in image_paths if p.parent != root})
+        transcription_map = {}
+        for txt_file in root.rglob("*.txt"):
+            if not txt_file.is_file():
+                continue
+            try:
+                content = txt_file.read_text(encoding="utf-8", errors="ignore").strip()
+            except Exception:
+                continue
+            if not content:
+                continue
+            stem = txt_file.stem
+            for suffix in ("_text", "_ocr", "_transcript"):
+                if stem.endswith(suffix):
+                    stem = stem[: -len(suffix)]
+                    break
+            transcription_map[(txt_file.parent, stem)] = content
+        _ANN_EXTS = {".json", ".xml", ".txt", ".csv"}
+        _MASK_SUFFIXES = ("_mask", "_seg", "_segmentation")
+        _DEPTH_SUFFIXES = ("_depth", "_depthmap", "_depth_map")
+        _KP_SUFFIXES = ("_keypoints", "_kp", "_pose")
         for img_path in image_paths:
             w, h = safe_image_size(img_path)
             if w == 0 and h == 0:
@@ -87,13 +107,38 @@ class ZipFolderImageAdapter(BaseFormatAdapter):
                     label = ""
             except ValueError:
                 label = ""
+            transcription = transcription_map.get((img_path.parent, img_path.stem))
+            stem = img_path.stem
+            parent = img_path.parent
+            bboxes_marker = []
+            masks_marker = []
+            keypoints_marker = []
+            depth_marker = None
+            for sib in parent.iterdir():
+                if not sib.is_file() or sib == img_path:
+                    continue
+                sib_stem = sib.stem
+                sib_ext = sib.suffix.lower()
+                if any(sib_stem.startswith(stem + s) for s in _KP_SUFFIXES) and sib_ext in _ANN_EXTS:
+                    keypoints_marker = [[(0.0, 0.0, 0.0)]]
+                elif any(sib_stem.startswith(stem + s) for s in _MASK_SUFFIXES) and sib_ext in {".png", ".jpg", ".jpeg", ".bmp", ".npy"}:
+                    masks_marker.append(str(sib))
+                elif any(sib_stem.startswith(stem + s) for s in _DEPTH_SUFFIXES) and sib_ext in {".png", ".jpg", ".jpeg", ".bmp", ".npy"}:
+                    depth_marker = str(sib)
+                elif sib_stem == stem and sib_ext in _ANN_EXTS:
+                    bboxes_marker = [(0.0, 0.0, 0.0, 0.0)]
             sample = ImageSample(
                 image_path=str(img_path),
                 image_id=str(img_path.relative_to(root)),
                 width=w,
                 height=h,
                 labels=[label] if label else [],
+                transcription=transcription,
                 split="",
+                bboxes=bboxes_marker,
+                masks=masks_marker,
+                keypoints=keypoints_marker,
+                depth_path=depth_marker,
             )
             samples.append(sample)
 

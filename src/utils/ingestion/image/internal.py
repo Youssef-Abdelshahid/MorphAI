@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import io
 import json
 import re
 import shutil
@@ -246,10 +245,17 @@ def _materialize_class_folders(dataset: InternalImageDataset, work_dir: Path) ->
     return work_dir
 
 
+_SIDECAR_EXTS = {".json", ".xml", ".txt", ".csv", ".png", ".npy", ".npz", ".tif", ".tiff", ".bmp"}
+
+
 def _materialize_flat_with_sidecars(dataset: InternalImageDataset, work_dir: Path, task_type: str) -> Path:
     images_dir = work_dir / "all"
     images_dir.mkdir(parents=True, exist_ok=True)
     used: Dict[str, int] = {}
+    has_sample_annotations = any(
+        bool(s.bboxes) or bool(s.masks) or bool(s.keypoints) or bool(s.transcription) or bool(s.depth_path)
+        for s in dataset.samples
+    )
     for sample in dataset.samples:
         src = Path(sample.image_path)
         if not src.exists():
@@ -269,8 +275,40 @@ def _materialize_flat_with_sidecars(dataset: InternalImageDataset, work_dir: Pat
         except Exception:
             continue
         target_stem = target.stem
-        _write_sidecar(images_dir, target_stem, sample, task_type)
+        if has_sample_annotations:
+            _write_sidecar(images_dir, target_stem, sample, task_type)
+        else:
+            _copy_sibling_sidecars(src, images_dir, target_stem)
     return work_dir
+
+
+def _copy_sibling_sidecars(image_src: Path, dest_dir: Path, target_stem: str) -> None:
+    parent = image_src.parent
+    src_stem = image_src.stem
+    if not parent.exists() or not parent.is_dir():
+        return
+    for entry in parent.iterdir():
+        if not entry.is_file() or entry == image_src:
+            continue
+        suf = entry.suffix.lower()
+        if suf not in _SIDECAR_EXTS:
+            continue
+        if suf in SUPPORTED_IMAGE_EXTS and not any(
+            tok in entry.stem.lower() for tok in ("mask", "seg", "label", "depth")
+        ):
+            continue
+        es = entry.stem
+        if es == src_stem:
+            new_name = f"{target_stem}{suf}"
+        elif es.startswith(f"{src_stem}_") or es.startswith(src_stem):
+            tail = es[len(src_stem):]
+            new_name = f"{target_stem}{tail}{suf}"
+        else:
+            continue
+        try:
+            shutil.copy2(entry, dest_dir / new_name)
+        except Exception:
+            continue
 
 
 def _write_sidecar(folder: Path, stem: str, sample: ImageSample, task_type: str) -> None:
@@ -341,28 +379,5 @@ def _materialize_mask(mask_obj: Any, folder: Path, stem: str, width: int, height
     return None
 
 
-def export_internal_annotations_zip(dataset: InternalImageDataset, target: Path) -> None:
-    target.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(str(target), "w", compression=zipfile.ZIP_DEFLATED) as zout:
-        catalog = []
-        for sample in dataset.samples:
-            entry = {
-                "image_id": sample.image_id,
-                "image_path": Path(sample.image_path).name,
-                "width": sample.width,
-                "height": sample.height,
-                "labels": sample.labels,
-                "bboxes": [list(b) for b in sample.bboxes],
-                "bbox_classes": sample.bbox_classes,
-                "keypoints": [
-                    [list(p) for p in instance] for instance in sample.keypoints
-                ],
-                "transcription": sample.transcription,
-                "split": sample.split,
-            }
-            catalog.append(entry)
-        zout.writestr("annotations.json", json.dumps({
-            "input_format": dataset.input_format,
-            "class_mapping": {str(k): v for k, v in dataset.class_mapping.items()},
-            "samples": catalog,
-        }, indent=2))
+
+

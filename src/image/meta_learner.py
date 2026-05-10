@@ -34,6 +34,26 @@ _NORM_MAP = {"none": 0, "standard": 1, "minmax": 2}
 _ROTATION_MAP = {"none": 0, "light": 1, "moderate": 2}
 _IMBALANCE_MAP = {"none": 0, "oversample": 1}
 
+_INPUT_FORMAT_MAP = {
+    "zip_folder": 0,
+    "image_folder_zip": 0,
+    "coco": 1,
+    "pascal_voc": 2,
+    "yolo": 3,
+}
+_INPUT_FORMAT_LABEL_MAP = {
+    "image folder / zip": 0,
+    "image folder/zip": 0,
+    "coco json annotations": 1,
+    "coco": 1,
+    "pascal voc xml annotations": 2,
+    "pascal voc": 2,
+    "yolo annotation format": 3,
+    "yolo": 3,
+}
+_META_INPUT_FORMAT_WEIGHT = 0.05
+_META_ANNOTATION_FLAG_WEIGHT = 0.10
+
 
 def _encode_task_type(task_type: str) -> float:
     idx = _TASK_TYPE_MAP.get((task_type or "other").lower().strip(), len(_TASK_TYPES) - 1)
@@ -44,6 +64,22 @@ def _encode_domain(domain: str) -> float:
     if not domain:
         return 0.0
     return (hash(domain.lower().strip()) % 1_000) / 1_000.0
+
+
+def _encode_input_format(task_context: dict) -> float:
+    raw_key = (task_context.get("input_format_key") or "").strip().lower()
+    if raw_key in _INPUT_FORMAT_MAP:
+        idx = _INPUT_FORMAT_MAP[raw_key]
+    else:
+        label = (task_context.get("input_format") or "").strip().lower()
+        idx = _INPUT_FORMAT_LABEL_MAP.get(label, 0)
+    denom = max(len(set(_INPUT_FORMAT_MAP.values())) - 1, 1)
+    return _META_INPUT_FORMAT_WEIGHT * (idx / denom)
+
+
+def _annotation_flag_features(profile_summary: dict) -> List[float]:
+    keys = ("has_class_labels", "has_bboxes", "has_masks", "has_keypoints", "has_text_labels", "has_depth_targets")
+    return [_META_ANNOTATION_FLAG_WEIGHT * float(bool(profile_summary.get(k, False))) for k in keys]
 
 
 def _profile_features(profile_summary: dict) -> List[float]:
@@ -83,10 +119,16 @@ def _pipeline_features(pipeline_dict: dict) -> List[float]:
 
 
 def _build_feature_vector(task_context: dict, profile_summary: dict, pipeline_dict: dict) -> List[float]:
-    return [
-        _encode_task_type(task_context.get("task_type", "other")),
-        _encode_domain(task_context.get("domain", "")),
-    ] + _profile_features(profile_summary) + _pipeline_features(pipeline_dict)
+    return (
+        [
+            _encode_task_type(task_context.get("task_type", "other")),
+            _encode_domain(task_context.get("domain", "")),
+            _encode_input_format(task_context),
+        ]
+        + _annotation_flag_features(profile_summary)
+        + _profile_features(profile_summary)
+        + _pipeline_features(pipeline_dict)
+    )
 
 
 class ImageMetaLearner:

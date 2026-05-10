@@ -7,7 +7,7 @@ import numpy as np
 
 MEMORY_DIR = Path("memory") / "text"
 META_LEARNER_FILE = MEMORY_DIR / "meta_learner.pkl"
-_SCORE_SYSTEM = "normalized_text_v2"
+_SCORE_SYSTEM = "normalized_text_v3"
 
 MIN_RUNS_TO_USE = 5
 MIN_RUNS_FULL_WEIGHT = 20
@@ -15,6 +15,14 @@ MAX_META_WEIGHT = 0.25
 
 _TASKS = ["classification_single", "classification_multi", "ner", "pos", "relation_extraction", "semantic_similarity", "summarization", "question_answering", "text_generation", "topic_modeling", "other"]
 _TASK_MAP = {name: i for i, name in enumerate(_TASKS)}
+_INPUT_FORMATS = ["csv_excel", "json_text_records", "txt_zip", "other"]
+_INPUT_FORMAT_MAP = {name: i for i, name in enumerate(_INPUT_FORMATS)}
+_FIELD_FLAG_KEYS = (
+    "has_text", "has_labels", "has_multilabels", "has_entity_annotations",
+    "has_pos_tags", "has_relation_labels", "has_similarity_pairs",
+    "has_summaries", "has_qa_fields", "has_generation_references",
+    "has_auxiliary_features", "is_plain_corpus",
+)
 _REP_MAP = {"raw_text": 0, "tfidf_word": 1, "tfidf_char": 2, "tfidf_char_word": 3, "token_sequence": 4}
 _PUNCT_MAP = {"keep": 0, "space": 1, "remove": 2}
 _NUM_MAP = {"keep": 0, "replace": 1, "remove": 2}
@@ -23,6 +31,14 @@ _FUSION_MAP = {"text_only": 0, "concatenate_text_tabular": 1}
 
 def _encode_task(task_type: str) -> float:
     return _TASK_MAP.get((task_type or "other").lower().strip(), len(_TASKS) - 1) / max(len(_TASKS) - 1, 1)
+
+
+def _encode_input_format(fmt: str) -> float:
+    return _INPUT_FORMAT_MAP.get((fmt or "other").lower().strip(), len(_INPUT_FORMATS) - 1) / max(len(_INPUT_FORMATS) - 1, 1)
+
+
+def _encode_field_flags(summary: dict) -> List[float]:
+    return [float(bool(summary.get(key, False))) for key in _FIELD_FLAG_KEYS]
 
 
 def _profile_features(summary: dict) -> List[float]:
@@ -63,7 +79,13 @@ def _pipeline_features(pipeline: dict) -> List[float]:
 
 
 def _vector(task_context: dict, profile_summary: dict, pipeline: dict) -> List[float]:
-    return [_encode_task(task_context.get("task_type", "other"))] + _profile_features(profile_summary) + _pipeline_features(pipeline)
+    fmt = profile_summary.get("input_format") or task_context.get("input_format_key") or task_context.get("input_format") or "other"
+    return (
+        [_encode_task(task_context.get("task_type", "other")), _encode_input_format(fmt)]
+        + _profile_features(profile_summary)
+        + _encode_field_flags(profile_summary)
+        + _pipeline_features(pipeline)
+    )
 
 
 class TextMetaLearner:

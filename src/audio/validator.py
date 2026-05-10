@@ -95,6 +95,62 @@ def _annotation_summary(root: Path) -> Dict[str, int]:
     return counts
 
 
+def validate_internal_audio_dataset(config, dataset) -> list:
+    errors: List[str] = []
+    task_type = normalize_task_type(config.task_type)
+    metric = (config.metric or "").strip().lower()
+    if not task_type:
+        errors.append("An audio task type is required.")
+    elif task_type not in SUPPORTED_TASK_TYPES:
+        errors.append(f"Task type '{task_type}' is not supported for audio data. Supported: {sorted(SUPPORTED_TASK_TYPES)}")
+    valid_metrics = valid_metrics_for_task(task_type)
+    if valid_metrics and metric and metric not in valid_metrics:
+        errors.append(f"Metric '{config.metric}' is not valid for '{task_type}'. Valid metrics: {valid_metrics}")
+    if valid_metrics and not metric:
+        config.metric = default_metric_for_task(task_type)
+
+    samples = list(getattr(dataset, "samples", []) or [])
+    if not samples:
+        errors.append("No usable audio samples were parsed from the input package.")
+        return errors
+
+    has_labels = any(bool(s.label) for s in samples)
+    has_transcripts = any(bool(s.transcript) for s in samples)
+    has_speakers = any(bool(s.speaker_id) for s in samples)
+    has_speaker_pairs = any(bool(s.audio_path_a) and bool(s.audio_path_b) for s in samples)
+    has_segments = any(s.start_time is not None and s.end_time is not None for s in samples)
+    has_events = any(bool(s.event_label) for s in samples)
+    has_noise_pairs = any(bool(s.noisy_path) and bool(s.clean_path) for s in samples)
+    n_classes = len({s.label for s in samples if s.label})
+
+    if task_type == "classification":
+        if not has_labels:
+            errors.append("The selected input format does not provide the labels/references required for classification.")
+        elif n_classes < 2:
+            errors.append("Audio classification needs at least 2 distinct labels.")
+    elif task_type == "asr":
+        if not has_transcripts:
+            errors.append("The selected input format does not provide the transcripts required for ASR.")
+    elif task_type == "speaker_recognition":
+        if not has_speakers and not has_speaker_pairs:
+            errors.append("The selected input format does not provide the speaker labels or verification pairs required for speaker recognition.")
+    elif task_type == "speaker_diarization":
+        if not has_segments and not has_speakers:
+            errors.append("The selected input format does not provide the segment annotations required for supervised speaker diarization.")
+    elif task_type == "sound_event_detection":
+        if not has_events and not has_labels:
+            errors.append("The selected input format does not provide the event labels required for sound event detection.")
+    elif task_type == "vad":
+        if not has_segments and not has_labels:
+            errors.append("The selected input format does not provide the speech/non-speech segments required for supervised VAD.")
+    elif task_type == "anomaly":
+        pass
+    elif task_type == "noise_suppression":
+        if not has_noise_pairs:
+            errors.append("The selected input format does not provide the noisy/clean pairs required for full noise suppression evaluation. Provide noisy_path and clean_path columns or use the proxy mode.")
+    return errors
+
+
 def validate_audio_run(config, root: Path) -> list:
     errors = []
     task_type = normalize_task_type(config.task_type)

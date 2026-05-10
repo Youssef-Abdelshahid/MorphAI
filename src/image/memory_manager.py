@@ -182,6 +182,12 @@ class ImageMemoryManager:
             "is_imbalanced": profile.is_imbalanced,
             "is_highly_imbalanced": profile.is_highly_imbalanced,
             "is_uniform_size": profile.is_uniform_size,
+            "has_class_labels": bool(getattr(profile, "n_classes", 0) > 0),
+            "has_bboxes": bool(getattr(profile, "has_bboxes", False)),
+            "has_masks": bool(getattr(profile, "has_masks", False)),
+            "has_keypoints": bool(getattr(profile, "has_keypoints", False)),
+            "has_text_labels": bool(getattr(profile, "has_text_labels", False)),
+            "has_depth_targets": bool(getattr(profile, "has_depth_targets", False)),
         }
 
         sorted_results = sorted(results, key=lambda r: -r.get("normalized_score", r.get("final_score", 0.0)))

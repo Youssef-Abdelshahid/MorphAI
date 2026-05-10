@@ -37,11 +37,27 @@ _TEXT_CSV_FILTERS = (
     ("Excel files", "*.xlsx *.xls"),
     ("All files", "*.*"),
 )
+_TEXT_JSON_FILTERS = (
+    ("JSON / JSONL", "*.json *.jsonl *.ndjson"),
+    ("All files", "*.*"),
+)
+_TEXT_TXT_ZIP_FILTERS = (
+    ("Zip archives", "*.zip"),
+    ("All files", "*.*"),
+)
 _IMAGE_ZIP_FILTERS = (
     ("Zip archives", "*.zip"),
     ("All files", "*.*"),
 )
 _AUDIO_ZIP_FILTERS = (
+    ("Zip archives", "*.zip"),
+    ("All files", "*.*"),
+)
+_AUDIO_METADATA_CSV_FILTERS = (
+    ("Zip archives", "*.zip"),
+    ("All files", "*.*"),
+)
+_AUDIO_METADATA_JSON_FILTERS = (
     ("Zip archives", "*.zip"),
     ("All files", "*.*"),
 )
@@ -96,19 +112,17 @@ INPUT_FORMATS: Dict[str, List[InputFormat]] = {
             key="json_text_records",
             label="JSON / JSONL text records",
             modality="Text",
-            implemented=False,
-            file_dialog_filters=_PLACEHOLDER_FILTERS,
+            implemented=True,
+            file_dialog_filters=_TEXT_JSON_FILTERS,
             file_dialog_title="Select JSON / JSONL text records",
-            coming_soon_hint="Use CSV / Excel for now.",
         ),
         InputFormat(
             key="txt_zip",
             label="TXT document folder / ZIP",
             modality="Text",
-            implemented=False,
-            file_dialog_filters=(("Zip archives", "*.zip"), ("All files", "*.*")),
+            implemented=True,
+            file_dialog_filters=_TEXT_TXT_ZIP_FILTERS,
             file_dialog_title="Select TXT document folder ZIP",
-            coming_soon_hint="Use CSV / Excel for now.",
         ),
     ],
     "Image": [
@@ -158,19 +172,17 @@ INPUT_FORMATS: Dict[str, List[InputFormat]] = {
             key="metadata_csv",
             label="Audio metadata CSV",
             modality="Audio",
-            implemented=False,
-            file_dialog_filters=_PLACEHOLDER_FILTERS,
-            file_dialog_title="Select audio metadata CSV",
-            coming_soon_hint="Use Audio folder / ZIP for now.",
+            implemented=True,
+            file_dialog_filters=_AUDIO_METADATA_CSV_FILTERS,
+            file_dialog_title="Select audio metadata CSV ZIP archive",
         ),
         InputFormat(
             key="metadata_json",
             label="Audio metadata JSON / JSONL",
             modality="Audio",
-            implemented=False,
-            file_dialog_filters=_PLACEHOLDER_FILTERS,
-            file_dialog_title="Select audio metadata JSON",
-            coming_soon_hint="Use Audio folder / ZIP for now.",
+            implemented=True,
+            file_dialog_filters=_AUDIO_METADATA_JSON_FILTERS,
+            file_dialog_title="Select audio metadata JSON ZIP archive",
         ),
     ],
 }
@@ -210,6 +222,18 @@ def get_adapter(modality: str, key_or_label: str):
     if modality == "Image":
         from src.utils.ingestion.image import get_image_adapter
         adapter = get_image_adapter(fmt.key)
+        if adapter is not None:
+            return adapter
+
+    if modality == "Audio":
+        from src.utils.ingestion.audio import get_audio_adapter
+        adapter = get_audio_adapter(fmt.key)
+        if adapter is not None:
+            return adapter
+
+    if modality == "Text":
+        from src.utils.ingestion.text import get_text_adapter
+        adapter = get_text_adapter(fmt.key)
         if adapter is not None:
             return adapter
 

@@ -15,6 +15,11 @@ REPORTS_DIR = Path("reports")
 def _profile_to_dict(profile: TextProfile) -> dict:
     ir = profile.imbalance_ratio
     return {
+        "input_format": profile.input_format,
+        "structure_profile": dict(profile.structure_profile or {}),
+        "parsing_summary": dict(profile.parsing_summary or {}),
+        "parser_warnings": list(profile.parser_warnings or []),
+        "field_availability": dict(profile.field_availability or {}),
         "n_samples": profile.n_samples,
         "original_row_count": profile.original_row_count,
         "removed_empty_or_invalid_count": profile.removed_empty_or_invalid_count,
@@ -78,6 +83,13 @@ def generate_explanation(profile: TextProfile, best: Dict[str, Any], metric: str
         f"Evaluation mode: {best.get('evaluation_mode', 'unknown')}.",
         f"Best pipeline used: {'text + tabular features' if fusion_used else 'text only'}.",
     ]
+    evaluator_details = best.get("evaluator_details") or {}
+    if evaluator_details.get("model_family"):
+        lines.append(f"Evaluator family: {evaluator_details['model_family']}.")
+    if evaluator_details.get("models"):
+        lines.append(f"Models used: {', '.join(str(m) for m in evaluator_details['models'])}.")
+    if evaluator_details.get("baselines"):
+        lines.append(f"Baselines: {', '.join(str(b) for b in evaluator_details['baselines'])}.")
     if best.get("evaluation_summary"):
         lines.append(best["evaluation_summary"])
     lines.append("")
@@ -94,9 +106,9 @@ def generate_explanation(profile: TextProfile, best: Dict[str, Any], metric: str
         lines.append(f"- Class imbalance handling: {spec.imbalance}.")
     if spec.fusion_strategy != "text_only":
         lines.append(f"- Fusion strategy: {spec.fusion_strategy} (numeric impute={spec.numeric_imputation}, scaling={spec.numeric_scaling}, cat encoding={spec.categorical_encoding}).")
-    if best.get("evaluation_mode") == "fallback":
+    if best.get("evaluation_mode") == "proxy":
         lines.append("")
-        lines.append("This run used an explicit lightweight fallback baseline because no heavier pretrained model is bundled for this task.")
+        lines.append("This run used an explicit lightweight proxy baseline because no heavier pretrained model is bundled for this task.")
     if mem_influence and (mem_influence.get("good_injections") or mem_influence.get("bad_avoidances")):
         lines.append("")
         lines.append(f"Memory influence: {mem_influence.get('good_injections', 0)} positive injection(s), {mem_influence.get('bad_avoidances', 0)} poor pattern avoidance(s).")
@@ -126,7 +138,15 @@ def generate_report(profile: TextProfile, results: List[Dict[str, Any]], best: D
     return {
         "timestamp": datetime.now().isoformat(),
         "modality": "Text",
-        "config": {"data_path": str(config.data_path), "metric": config.metric, "modality": config.modality, "input_format": getattr(config, "input_format", "")},
+        "config": {
+            "data_path": str(config.data_path),
+            "metric": config.metric,
+            "modality": config.modality,
+            "input_format": getattr(config, "input_format", ""),
+            "input_format_key": getattr(config, "input_format_key", ""),
+            "record_path": getattr(config, "record_path", ""),
+            "metadata_path": getattr(config, "metadata_path", ""),
+        },
         "task_context": tc,
         "profile_summary": profile_dict,
         "text_meta_features": text_meta_features(profile, config.task_type, selected_metric, best_pipeline_dict),
@@ -180,6 +200,14 @@ def generate_report(profile: TextProfile, results: List[Dict[str, Any]], best: D
         },
         "text_report_sections": {
             "english_only_support": "This run processed English-only text. Rows detected as non-English were removed before evaluation.",
+            "input_format": profile.input_format,
+            "input_format_label": getattr(config, "input_format", ""),
+            "record_path": getattr(config, "record_path", ""),
+            "metadata_path": getattr(config, "metadata_path", ""),
+            "structure_profile": dict(profile.structure_profile or {}),
+            "parsing_summary": dict(profile.parsing_summary or {}),
+            "parser_warnings": list(profile.parser_warnings or []),
+            "field_availability": dict(profile.field_availability or {}),
             "selected_task_type": tc.get("task_type", ""),
             "selected_metric": selected_metric,
             "user_provided_columns": (config.col_overrides or {}),

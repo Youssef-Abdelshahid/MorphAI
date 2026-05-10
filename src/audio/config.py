@@ -1,5 +1,6 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Dict
 
 AUDIO_CLASSIFICATION_METRICS = ["accuracy", "macro_f1", "weighted_f1", "precision", "recall"]
 ASR_METRICS = ["wer", "cer", "exact_match_accuracy", "normalized_edit_similarity"]
@@ -9,7 +10,7 @@ DIARIZATION_METRICS = ["diarization_error_rate", "speaker_confusion", "missed_sp
 SOUND_EVENT_METRICS = ["event_f1", "segment_f1", "precision", "recall", "error_rate"]
 VAD_METRICS = ["frame_f1", "precision", "recall", "false_alarm_rate", "miss_rate"]
 ANOMALY_METRICS = ["auroc", "auprc", "f1", "precision", "recall", "proxy_score", "score_separation", "reconstruction_consistency", "stability"]
-NOISE_SUPPRESSION_METRICS = ["si_sdr_improvement", "snr_improvement", "stoi", "pesq", "spectral_distance", "proxy_score"]
+NOISE_SUPPRESSION_METRICS = ["si_sdr_improvement", "snr_improvement", "spectral_distance", "proxy_score"]
 
 _AUD_TASK_BACKEND = {
     "Audio classification": "classification",
@@ -125,9 +126,13 @@ class AudioConfig:
     notes: str = ""
     modality: str = "Audio"
     input_format: str = ""
+    input_format_key: str = ""
+    metadata_path: str = ""
+    record_path: str = ""
     audio_format: str = ""
     channel_layout: str = ""
     sample_rate: str = ""
+    field_overrides: Dict[str, str] = field(default_factory=dict)
 
     @property
     def supervision(self) -> str:
@@ -154,8 +159,12 @@ class AudioConfig:
             "notes": self.notes,
             "modality": self.modality,
             "input_format": self.input_format,
+            "input_format_key": self.input_format_key,
+            "metadata_path": self.metadata_path,
+            "record_path": self.record_path,
             "audio_format": self.audio_format,
             "channel_layout": self.channel_layout,
             "sample_rate": self.sample_rate,
             "supervision": self.supervision,
+            "field_overrides": dict(self.field_overrides or {}),
         }

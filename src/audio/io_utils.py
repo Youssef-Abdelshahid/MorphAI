@@ -3,8 +3,8 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg"}
-ANNOTATION_EXTENSIONS = {".csv", ".json", ".txt", ".rttm", ".lab", ".TextGrid"}
+AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac"}
+ANNOTATION_EXTENSIONS = {".csv", ".json", ".jsonl", ".ndjson", ".txt", ".rttm", ".lab", ".TextGrid"}
 
 
 def read_audio(path: Path) -> Tuple[int, np.ndarray, Optional[int]]:

@@ -362,7 +362,72 @@ def _classification(spec, profile, metric_priority, task_type="classification"):
     return _make_result(spec, task_type, metric_priority, selected, raw, norm, per_raw, {"metric_note": note, "read_failures": failures, "audio_representation": spec.feature_representation, "model_family": "audio feature + shallow classifier fallback", "models": list(models.keys())}, "supervised", summary, 0.0, raw_std, norm_std, n_splits, len(models))
 
 
+def _speaker_verification(spec, profile, metric_priority, pair_rows):
+    failures: List[str] = []
+    scores = []
+    truths = []
+    cache: Dict[str, np.ndarray] = {}
+
+    def _embed(rel_path: str) -> Optional[np.ndarray]:
+        full = profile.root_path / rel_path
+        if not full.exists():
+            return None
+        if str(full) in cache:
+            return cache[str(full)]
+        try:
+            sr, y = _prepare_signal(str(full), spec)
+            emb = _speaker_embedding(sr, y, spec)
+            cache[str(full)] = emb
+            return emb
+        except Exception as exc:
+            failures.append(f"{full.name}: {exc}")
+            return None
+
+    for row in pair_rows:
+        rel_a = (row.get("audio_path_a") or "").strip()
+        rel_b = (row.get("audio_path_b") or "").strip()
+        same = (row.get("same_speaker") or "").strip().lower()
+        if not rel_a or not rel_b or same in {"", "nan"}:
+            continue
+        a = _embed(rel_a)
+        b = _embed(rel_b)
+        if a is None or b is None:
+            continue
+        denom = float(np.linalg.norm(a) * np.linalg.norm(b)) or 1e-8
+        sim = float(np.dot(a, b) / denom)
+        scores.append(sim)
+        try:
+            truths.append(1 if int(float(same)) == 1 else 0)
+        except Exception:
+            truths.append(1 if same in {"true", "yes", "same"} else 0)
+    if len(scores) < 4 or len(set(truths)) < 2:
+        raise ValueError("Speaker verification needs at least 4 readable pairs covering both same-speaker and different-speaker cases.")
+    truth = np.asarray(truths)
+    score_arr = np.asarray(scores)
+    auroc = float(roc_auc_score(truth, score_arr))
+    thresholds = np.linspace(score_arr.min(), score_arr.max(), 60)
+    best_acc = 0.0
+    best_eer = 1.0
+    for threshold in thresholds:
+        pred_pair = (score_arr >= threshold).astype(int)
+        fp = float(np.mean((pred_pair == 1) & (truth == 0)))
+        fn = float(np.mean((pred_pair == 0) & (truth == 1)))
+        best_eer = min(best_eer, (fp + fn) / 2.0)
+        best_acc = max(best_acc, float(np.mean(pred_pair == truth)))
+    raw = {"equal_error_rate": best_eer, "auroc": auroc, "verification_accuracy": best_acc}
+    norm = {"equal_error_rate": _clamp_01(1.0 - best_eer), "auroc": _clamp_01(auroc), "verification_accuracy": _clamp_01(best_acc)}
+    selected, note = _resolve_metric("speaker_recognition", metric_priority, raw.keys(), fallback="auroc")
+    summary = f"Speaker verification evaluated MFCC speaker embeddings with cosine scoring across {len(scores)} pair(s). Selected metric: {metric_label(selected)} = {raw.get(selected, 0.0):.4f}. Normalized score = {norm.get(selected, 0.0):.4f}."
+    return _make_result(spec, "speaker_recognition", metric_priority, selected, raw, norm, {"mfcc_cosine_verification": raw}, {"metric_note": note, "mode": "verification", "n_pairs": len(scores), "read_failures": failures, "audio_representation": "MFCC speaker embedding", "model_family": "speaker embedding + cosine verification", "models": ["mfcc_cosine_verification"], "baselines": ["mfcc_cosine"]}, "supervised", summary, 0.0, {f"{k}_std": 0.0 for k in raw}, {f"{k}_std": 0.0 for k in norm}, 1, 1)
+
+
 def _speaker_recognition(spec, profile, metric_priority):
+    pair_rows = _read_pairs_manifest(profile, "pairs_speaker.csv")
+    if pair_rows:
+        try:
+            return _speaker_verification(spec, profile, metric_priority, pair_rows)
+        except ValueError:
+            pass
     embeddings = []
     labels = []
     failures = []
@@ -438,24 +503,60 @@ def _speaker_recognition(spec, profile, metric_priority):
     if note:
         summary += f" {note}"
     per_model = {"mfcc_speaker_embedding_centroid_cosine": raw}
-    return _make_result(spec, "speaker_recognition", metric_priority, selected, raw, norm, per_model, {"metric_note": note, "read_failures": failures, "audio_representation": "mfcc speaker embedding", "model_family": "speaker embedding + centroid/cosine baseline"}, "supervised", summary, 0.0, {f"{k}_std": _safe_std(v) for k, v in fold_metrics.items()}, {f"{k}_std": 0.0 for k in norm}, n_splits, 1)
+    return _make_result(spec, "speaker_recognition", metric_priority, selected, raw, norm, per_model, {"metric_note": note, "read_failures": failures, "audio_representation": "mfcc speaker embedding", "model_family": "speaker embedding + centroid/cosine baseline", "models": list(per_model.keys()), "baselines": ["mfcc_centroid_cosine"]}, "supervised", summary, 0.0, {f"{k}_std": _safe_std(v) for k, v in fold_metrics.items()}, {f"{k}_std": 0.0 for k in norm}, n_splits, 1)
 
 
 def _sound_event_detection(spec, profile, metric_priority):
     segment_embeddings = []
     segment_labels = []
     failures = []
-    for path, label in zip(profile.audio_paths, profile.audio_labels):
-        if not label:
-            continue
-        try:
-            sr, y = _prepare_signal(path, spec)
-            frames = _frame_signal(y, max(int(sr * 1.0), 256), max(int(sr * 0.5), 128))
-            for frame in frames:
-                segment_embeddings.append(_temporal_pool(_log_mel_spectrogram(sr, frame, n_mels=48)))
-                segment_labels.append(label)
-        except Exception as exc:
-            failures.append(f"{Path(path).name}: {exc}")
+    event_rows = _read_pairs_manifest(profile, "events.csv")
+    has_events = bool(event_rows)
+    if has_events:
+        grouped: Dict[str, List[Dict[str, Any]]] = {}
+        for row in event_rows:
+            rel = (row.get("file") or row.get("audio_path") or "").strip()
+            if not rel:
+                continue
+            grouped.setdefault(rel, []).append(row)
+        for rel, rows in grouped.items():
+            full = profile.root_path / rel
+            if not full.exists():
+                continue
+            try:
+                sr, y = _prepare_signal(str(full), spec)
+                for row in rows:
+                    label = (row.get("event_label") or row.get("label") or "").strip()
+                    if not label:
+                        continue
+                    try:
+                        st = float(row.get("start_time") or 0.0)
+                        et = float(row.get("end_time") or 0.0)
+                    except Exception:
+                        continue
+                    if et <= st:
+                        continue
+                    a = max(0, int(st * max(sr, 1)))
+                    b = min(len(y), int(et * max(sr, 1)))
+                    if b - a < 32:
+                        continue
+                    seg = y[a:b]
+                    segment_embeddings.append(_temporal_pool(_log_mel_spectrogram(sr, seg, n_mels=48)))
+                    segment_labels.append(label)
+            except Exception as exc:
+                failures.append(f"{full.name}: {exc}")
+    if not segment_embeddings:
+        for path, label in zip(profile.audio_paths, profile.audio_labels):
+            if not label:
+                continue
+            try:
+                sr, y = _prepare_signal(path, spec)
+                frames = _frame_signal(y, max(int(sr * 1.0), 256), max(int(sr * 0.5), 128))
+                for frame in frames:
+                    segment_embeddings.append(_temporal_pool(_log_mel_spectrogram(sr, frame, n_mels=48)))
+                    segment_labels.append(label)
+            except Exception as exc:
+                failures.append(f"{Path(path).name}: {exc}")
     if len(segment_labels) < 8:
         raise ValueError("Sound event detection needs enough readable labeled audio segments for segment-level evaluation.")
     le = LabelEncoder()
@@ -502,9 +603,10 @@ def _sound_event_detection(spec, profile, metric_priority):
     summary = f"Sound event detection evaluated a segment-level log-Mel embedding MLP baseline. Selected metric: {metric_label(selected)} = {raw.get(selected, 0.0):.4f}. Normalized score = {norm.get(selected, 0.0):.4f}."
     if note:
         summary += f" {note}"
-    if profile.annotation_counts.get("events", 0) <= 0:
+    has_events = bool(event_rows) or profile.annotation_counts.get("events", 0) > 0
+    if not has_events:
         summary = "No temporal event annotations were available, so this is explicitly marked as clip-label-to-segment fallback evaluation. " + summary
-    return _make_result(spec, "sound_event_detection", metric_priority, selected, raw, norm, {"log_mel_segment_mlp": raw}, {"metric_note": note, "read_failures": failures, "audio_representation": "segment-level log-Mel spectrogram embeddings", "model_family": "sound-event segment MLP fallback", "temporal_annotations_available": profile.annotation_counts.get("events", 0) > 0}, "segment_level_supervised" if profile.annotation_counts.get("events", 0) > 0 else "clip_level_fallback", summary, 0.0, raw_std, {f"{k}_std": 0.0 for k in norm}, n_splits, 1)
+    return _make_result(spec, "sound_event_detection", metric_priority, selected, raw, norm, {"log_mel_segment_mlp": raw}, {"metric_note": note, "read_failures": failures, "audio_representation": "segment-level log-Mel spectrogram embeddings", "model_family": "sound-event segment MLP fallback", "models": ["log_mel_segment_mlp"], "baselines": ["MLPClassifier"], "temporal_annotations_available": has_events, "evaluation_scope": "segment_level" if has_events else "clip_level"}, "supervised" if has_events else "proxy", summary, 0.0, raw_std, {f"{k}_std": 0.0 for k in norm}, n_splits, 1)
 
 
 def _anomaly(spec, profile, metric_priority):
@@ -562,7 +664,7 @@ def _anomaly(spec, profile, metric_priority):
         summary += " This score is based on proxy/internal metrics because no anomaly labels were available."
     if note:
         summary += f" {note}"
-    return _make_result(spec, "anomaly", metric_priority, selected, raw, norm, per_raw, {"metric_note": note, "has_ground_truth": y_true is not None, "read_failures": failures, "audio_representation": spec.feature_representation, "model_family": "audio embedding reconstruction/distance anomaly baseline"}, mode, summary, 0.0, raw_std, norm_std, 1, len(models))
+    return _make_result(spec, "anomaly", metric_priority, selected, raw, norm, per_raw, {"metric_note": note, "has_ground_truth": y_true is not None, "read_failures": failures, "audio_representation": spec.feature_representation, "model_family": "audio embedding reconstruction/distance anomaly baseline", "models": list(per_raw.keys()), "baselines": ["PCA_reconstruction_error", "distance_from_median"]}, mode, summary, 0.0, raw_std, norm_std, 1, len(models))
 
 
 def _levenshtein(a, b):
@@ -605,7 +707,7 @@ def _asr(spec, profile, metric_priority):
     summary = f"ASR used a forced transcript validation path with filename-derived transcript hypotheses against transcript labels. Selected metric: {metric_label(selected)} = {raw.get(selected, 0.0):.4f}. Normalized score = {norm.get(selected, 0.0):.4f}."
     if note:
         summary += f" {note}"
-    return _make_result(spec, "asr", metric_priority, selected, raw, norm, {"forced_transcript_validation": raw}, {"metric_note": note, "transcript_pairs": len(rows), "model_family": "ASR forced transcript validation baseline", "audio_representation": "transcript manifest aligned to audio filenames"}, "asr_validation", summary, 0.0, {f"{k}_std": _safe_std([r[k] for r in rows]) for k in raw}, {f"{k}_std": 0.0 for k in norm}, 1, 1)
+    return _make_result(spec, "asr", metric_priority, selected, raw, norm, {"forced_transcript_validation": raw}, {"metric_note": note, "transcript_pairs": len(rows), "model_family": "ASR forced transcript validation baseline", "models": ["filename_to_transcript"], "baselines": ["filename_to_text", "levenshtein"], "audio_representation": "transcript manifest aligned to audio filenames"}, "validation_only", summary, 0.0, {f"{k}_std": _safe_std([r[k] for r in rows]) for k in raw}, {f"{k}_std": 0.0 for k in norm}, 1, 1)
 
 
 def _proxy_vad(spec, profile, metric_priority):
@@ -640,45 +742,135 @@ def _proxy_vad(spec, profile, metric_priority):
     norm = {"frame_f1": raw["frame_f1"], "precision": raw["precision"], "recall": raw["recall"], "false_alarm_rate": 1.0 - raw["false_alarm_rate"], "miss_rate": 1.0 - raw["miss_rate"]}
     selected, note = _resolve_metric("vad", metric_priority, raw.keys(), fallback="frame_f1")
     summary = f"Voice activity detection used an energy and zero-crossing frame-level VAD baseline. Selected metric: {metric_label(selected)} = {raw.get(selected, 0.0):.4f}. Normalized score = {norm.get(selected, 0.0):.4f}."
-    return _make_result(spec, "vad", metric_priority, selected, raw, norm, {"energy_zcr_vad": raw}, {"metric_note": note, "read_failures": failures, "audio_representation": "frame-level energy and zero-crossing features", "model_family": "threshold-based VAD baseline"}, "proxy", summary, 0.0, {f"{k}_std": 0.0 for k in raw}, {f"{k}_std": 0.0 for k in norm}, 1, 1)
+    return _make_result(spec, "vad", metric_priority, selected, raw, norm, {"energy_zcr_vad": raw}, {"metric_note": note, "read_failures": failures, "audio_representation": "frame-level energy and zero-crossing features", "model_family": "threshold-based VAD baseline", "models": ["energy_zcr_vad"], "baselines": ["energy_threshold", "zero_crossing_rate"]}, "proxy", summary, 0.0, {f"{k}_std": 0.0 for k in raw}, {f"{k}_std": 0.0 for k in norm}, 1, 1)
+
+
+def _enhance_signal(sr: int, y: np.ndarray):
+    if len(y) < 32:
+        return y, np.zeros((1, 1), dtype=np.float32), np.zeros((1, 1), dtype=np.float32)
+    _, _, zxx = signal.stft(y, fs=max(sr, 1), nperseg=min(512, len(y)))
+    mag = np.abs(zxx)
+    phase = np.exp(1j * np.angle(zxx))
+    noise_profile = np.percentile(mag, 20, axis=1, keepdims=True)
+    gain = np.maximum(1.0 - noise_profile / np.maximum(mag, 1e-8), 0.05)
+    enhanced_mag = mag * gain
+    _, enhanced = signal.istft(enhanced_mag * phase, fs=max(sr, 1), nperseg=min(512, len(y)))
+    enhanced = enhanced[:len(y)]
+    return enhanced.astype(np.float32), enhanced_mag, mag
+
+
+def _si_sdr(estimate: np.ndarray, reference: np.ndarray) -> float:
+    if len(estimate) == 0 or len(reference) == 0:
+        return 0.0
+    n = min(len(estimate), len(reference))
+    estimate = estimate[:n].astype(np.float64)
+    reference = reference[:n].astype(np.float64)
+    ref_energy = float(np.sum(reference ** 2))
+    if ref_energy < 1e-12:
+        return 0.0
+    alpha = float(np.dot(estimate, reference)) / ref_energy
+    projection = alpha * reference
+    noise = estimate - projection
+    noise_energy = float(np.sum(noise ** 2))
+    if noise_energy < 1e-12:
+        return 60.0
+    return 10.0 * math.log10(float(np.sum(projection ** 2)) / noise_energy)
+
+
+def _read_pairs_manifest(profile, name: str):
+    path = profile.root_path / name
+    if not path.exists():
+        return []
+    rows = []
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore", newline="") as fh:
+            reader = csv.DictReader(fh)
+            for row in reader:
+                rows.append({k: v for k, v in row.items() if k})
+    except Exception:
+        return []
+    return rows
 
 
 def _noise_suppression(spec, profile, metric_priority):
-    improvements = []
-    distances = []
-    failures = []
-    for path in profile.audio_paths:
-        try:
-            sr, y = _prepare_signal(path, spec)
-            if len(y) < 32:
-                continue
-            freqs, times, zxx = signal.stft(y, fs=max(sr, 1), nperseg=min(512, len(y)))
-            mag = np.abs(zxx)
-            phase = np.exp(1j * np.angle(zxx))
-            noise_profile = np.percentile(mag, 20, axis=1, keepdims=True)
-            gain = np.maximum(1.0 - noise_profile / np.maximum(mag, 1e-8), 0.05)
-            enhanced_mag = mag * gain
-            _, enhanced = signal.istft(enhanced_mag * phase, fs=max(sr, 1), nperseg=min(512, len(y)))
-            enhanced = enhanced[:len(y)]
-            noise_before = y - signal.medfilt(y, kernel_size=5 if len(y) >= 5 else 3)
-            noise_after = enhanced - signal.medfilt(enhanced, kernel_size=5 if len(enhanced) >= 5 else 3)
-            snr_before = 10.0 * math.log10(float(np.mean(y ** 2)) / max(float(np.mean(noise_before ** 2)), 1e-8))
-            snr_after = 10.0 * math.log10(float(np.mean(enhanced ** 2)) / max(float(np.mean(noise_after ** 2)), 1e-8))
-            improvements.append(snr_after - snr_before)
-            distances.append(float(np.mean(np.abs(np.log1p(enhanced_mag) - np.log1p(mag)))))
-        except Exception as exc:
-            failures.append(f"{Path(path).name}: {exc}")
+    improvements: List[float] = []
+    distances: List[float] = []
+    si_sdr_improvements: List[float] = []
+    paired_evaluations = 0
+    failures: List[str] = []
+    pair_rows = _read_pairs_manifest(profile, "pairs_noise.csv")
+    pair_paths: List[Tuple[Path, Path]] = []
+    for row in pair_rows:
+        noisy_rel = (row.get("noisy_path") or "").strip()
+        clean_rel = (row.get("clean_path") or "").strip()
+        if not noisy_rel or not clean_rel:
+            continue
+        noisy = (profile.root_path / noisy_rel)
+        clean = (profile.root_path / clean_rel)
+        if noisy.exists() and clean.exists():
+            pair_paths.append((noisy, clean))
+
+    if pair_paths:
+        for noisy, clean in pair_paths:
+            try:
+                sr_noisy, y_noisy = _prepare_signal(str(noisy), spec)
+                sr_clean, y_clean = _prepare_signal(str(clean), spec)
+                if sr_noisy != sr_clean:
+                    y_clean, _ = _resample(y_clean, sr_clean, sr_noisy)
+                n = min(len(y_noisy), len(y_clean))
+                if n < 32:
+                    continue
+                y_noisy = y_noisy[:n]
+                y_clean = y_clean[:n]
+                enhanced, enhanced_mag, mag = _enhance_signal(sr_noisy, y_noisy)
+                enhanced = enhanced[:n]
+                noise_in = y_noisy - y_clean
+                noise_out = enhanced[:n] - y_clean
+                snr_before = 10.0 * math.log10(float(np.mean(y_clean ** 2)) / max(float(np.mean(noise_in ** 2)), 1e-8))
+                snr_after = 10.0 * math.log10(float(np.mean(y_clean ** 2)) / max(float(np.mean(noise_out ** 2)), 1e-8))
+                improvements.append(snr_after - snr_before)
+                si_sdr_improvements.append(_si_sdr(enhanced, y_clean) - _si_sdr(y_noisy, y_clean))
+                distances.append(float(np.mean(np.abs(np.log1p(enhanced_mag) - np.log1p(mag)))))
+                paired_evaluations += 1
+            except Exception as exc:
+                failures.append(f"{noisy.name}: {exc}")
+    else:
+        for path in profile.audio_paths:
+            try:
+                sr, y = _prepare_signal(path, spec)
+                if len(y) < 32:
+                    continue
+                enhanced, enhanced_mag, mag = _enhance_signal(sr, y)
+                noise_before = y - signal.medfilt(y, kernel_size=5 if len(y) >= 5 else 3)
+                noise_after = enhanced - signal.medfilt(enhanced, kernel_size=5 if len(enhanced) >= 5 else 3)
+                snr_before = 10.0 * math.log10(float(np.mean(y ** 2)) / max(float(np.mean(noise_before ** 2)), 1e-8))
+                snr_after = 10.0 * math.log10(float(np.mean(enhanced ** 2)) / max(float(np.mean(noise_after ** 2)), 1e-8))
+                improvements.append(snr_after - snr_before)
+                distances.append(float(np.mean(np.abs(np.log1p(enhanced_mag) - np.log1p(mag)))))
+            except Exception as exc:
+                failures.append(f"{Path(path).name}: {exc}")
     if not improvements:
-        raise ValueError("Noise suppression proxy evaluation needs at least one readable audio file.")
+        raise ValueError("Noise suppression evaluation needs at least one readable audio file or noisy/clean pair.")
     snr_improvement = _safe_mean(improvements)
     spectral_distance = _safe_mean(distances)
     clipping_gain = _clamp_01(1.0 - profile.clipping_ratio)
+    if paired_evaluations and si_sdr_improvements:
+        si_sdr_improvement = _safe_mean(si_sdr_improvements)
+        evaluation_mode = "supervised"
+        clean_refs = True
+    else:
+        si_sdr_improvement = snr_improvement * 0.8
+        evaluation_mode = "proxy"
+        clean_refs = False
     proxy = _clamp_01(0.45 * _clamp_01((snr_improvement + 5.0) / 20.0) + 0.35 * _clamp_01(1.0 / (1.0 + spectral_distance)) + 0.20 * clipping_gain)
-    raw = {"snr_improvement": snr_improvement, "si_sdr_improvement": snr_improvement * 0.8, "spectral_distance": spectral_distance, "proxy_score": proxy}
-    norm = {"snr_improvement": _clamp_01((snr_improvement + 5.0) / 20.0), "si_sdr_improvement": _clamp_01((raw["si_sdr_improvement"] + 5.0) / 20.0), "spectral_distance": _clamp_01(1.0 / (1.0 + spectral_distance)), "proxy_score": proxy}
-    selected, note = _resolve_metric("noise_suppression", metric_priority, raw.keys(), fallback="snr_improvement")
-    summary = f"Noise suppression evaluated a spectral-gating enhancement baseline with proxy SNR improvement and spectral distance because clean references were not available. Selected metric: {metric_label(selected)} = {raw.get(selected, 0.0):.4f}. Normalized score = {norm.get(selected, 0.0):.4f}."
-    return _make_result(spec, "noise_suppression", metric_priority, selected, raw, norm, {"spectral_gating_baseline": raw}, {"metric_note": note, "clean_references": False, "read_failures": failures, "audio_representation": "STFT magnitude spectrogram", "model_family": "spectral gating noise suppression baseline"}, "proxy", summary, 0.0, {f"{k}_std": _safe_std(improvements) if k in {"snr_improvement", "si_sdr_improvement"} else 0.0 for k in raw}, {f"{k}_std": 0.0 for k in norm}, 1, 1)
+    raw = {"snr_improvement": snr_improvement, "si_sdr_improvement": si_sdr_improvement, "spectral_distance": spectral_distance, "proxy_score": proxy}
+    norm = {"snr_improvement": _clamp_01((snr_improvement + 5.0) / 20.0), "si_sdr_improvement": _clamp_01((si_sdr_improvement + 5.0) / 20.0), "spectral_distance": _clamp_01(1.0 / (1.0 + spectral_distance)), "proxy_score": proxy}
+    selected, note = _resolve_metric("noise_suppression", metric_priority, raw.keys(), fallback="si_sdr_improvement" if clean_refs else "snr_improvement")
+    if clean_refs:
+        summary = f"Noise suppression evaluated a spectral-gating enhancement baseline against {paired_evaluations} clean reference pair(s). Selected metric: {metric_label(selected)} = {raw.get(selected, 0.0):.4f}. Normalized score = {norm.get(selected, 0.0):.4f}."
+    else:
+        summary = f"Noise suppression evaluated a spectral-gating enhancement baseline with proxy SNR improvement and spectral distance because clean references were not available. Selected metric: {metric_label(selected)} = {raw.get(selected, 0.0):.4f}. Normalized score = {norm.get(selected, 0.0):.4f}."
+    return _make_result(spec, "noise_suppression", metric_priority, selected, raw, norm, {"spectral_gating_baseline": raw}, {"metric_note": note, "clean_references": clean_refs, "paired_evaluations": paired_evaluations, "read_failures": failures, "audio_representation": "STFT magnitude spectrogram", "model_family": "spectral gating noise suppression baseline", "models": ["spectral_gating_baseline"], "baselines": ["spectral_gating", "median_filter_residual"]}, evaluation_mode, summary, 0.0, {f"{k}_std": _safe_std(improvements) if k in {"snr_improvement", "si_sdr_improvement"} else 0.0 for k in raw}, {f"{k}_std": 0.0 for k in norm}, 1, 1)
 
 
 def _diarization_proxy(spec, profile, metric_priority):
@@ -729,7 +921,7 @@ def _diarization_proxy(spec, profile, metric_priority):
     summary = f"Speaker diarization used an energy VAD, MFCC speaker segment embeddings, and clustering baseline with proxy diarization metrics. Selected metric: {metric_label(selected)} = {raw.get(selected, 0.0):.4f}. Normalized score = {norm.get(selected, 0.0):.4f}."
     if note:
         summary += f" {note}"
-    return _make_result(spec, "speaker_diarization", metric_priority, selected, raw, norm, {"vad_mfcc_clustering_diarization": raw}, {"metric_note": note, "annotation_proxy": True, "read_failures": failures, "audio_representation": "frame-level VAD + MFCC speaker embeddings", "model_family": "VAD + speaker embedding clustering baseline", "estimated_speakers": target_k}, "proxy", summary, 0.0, {f"{k}_std": 0.0 for k in raw}, {f"{k}_std": 0.0 for k in norm}, 1, 2)
+    return _make_result(spec, "speaker_diarization", metric_priority, selected, raw, norm, {"vad_mfcc_clustering_diarization": raw}, {"metric_note": note, "annotation_proxy": True, "read_failures": failures, "audio_representation": "frame-level VAD + MFCC speaker embeddings", "model_family": "VAD + speaker embedding clustering baseline", "models": list(clusterings.keys()), "baselines": ["KMeans", "AgglomerativeClustering"], "estimated_speakers": target_k}, "proxy", summary, 0.0, {f"{k}_std": 0.0 for k in raw}, {f"{k}_std": 0.0 for k in norm}, 1, 2)
 
 
 def evaluate_pipeline(spec: AudioPipelineSpec, profile: AudioProfile, task_type: str, metric_priority: str) -> Dict[str, Any]:
