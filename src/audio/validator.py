@@ -2,7 +2,7 @@ import zipfile
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-from .config import SUPPORTED_TASK_TYPES, VALID_TASK_TYPES, default_metric_for_task, normalize_task_type, valid_metrics_for_task
+from .config import DEPRECATED_TASK_TYPES, SUPPORTED_TASK_TYPES, VALID_TASK_TYPES, default_metric_for_task, normalize_task_type, valid_metrics_for_task
 from .io_utils import AUDIO_EXTENSIONS
 
 
@@ -101,6 +101,8 @@ def validate_internal_audio_dataset(config, dataset) -> list:
     metric = (config.metric or "").strip().lower()
     if not task_type:
         errors.append("An audio task type is required.")
+    elif task_type in DEPRECATED_TASK_TYPES:
+        errors.append(f"Task type '{task_type}' has been deprecated and is no longer supported. Supported: {sorted(SUPPORTED_TASK_TYPES)}")
     elif task_type not in SUPPORTED_TASK_TYPES:
         errors.append(f"Task type '{task_type}' is not supported for audio data. Supported: {sorted(SUPPORTED_TASK_TYPES)}")
     valid_metrics = valid_metrics_for_task(task_type)
@@ -134,9 +136,6 @@ def validate_internal_audio_dataset(config, dataset) -> list:
     elif task_type == "speaker_recognition":
         if not has_speakers and not has_speaker_pairs:
             errors.append("The selected input format does not provide the speaker labels or verification pairs required for speaker recognition.")
-    elif task_type == "speaker_diarization":
-        if not has_segments and not has_speakers:
-            errors.append("The selected input format does not provide the segment annotations required for supervised speaker diarization.")
     elif task_type == "sound_event_detection":
         if not has_events and not has_labels:
             errors.append("The selected input format does not provide the event labels required for sound event detection.")
@@ -159,6 +158,8 @@ def validate_audio_run(config, root: Path) -> list:
         return [f"Path is not a valid directory: {root}"]
     if not task_type:
         errors.append("An audio task type is required.")
+    elif task_type in DEPRECATED_TASK_TYPES:
+        errors.append(f"Task type '{task_type}' has been deprecated and is no longer supported. Supported task types: {sorted(SUPPORTED_TASK_TYPES)}")
     elif task_type not in VALID_TASK_TYPES:
         errors.append(f"Task type '{config.task_type}' is not valid for audio data. Supported task types: {sorted(SUPPORTED_TASK_TYPES)}")
     elif task_type not in SUPPORTED_TASK_TYPES:

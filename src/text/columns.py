@@ -10,12 +10,9 @@ REQUIRED_COLUMN_KEYS = {
     "classification_single": [("text", "text column"), ("label", "label column")],
     "classification_multi": [("text", "text column")],
     "ner": [("text", "text column"), ("entities", "entity annotations column")],
-    "pos": [("pos_tags", "POS tags column")],
-    "relation_extraction": [("text", "text column"), ("entity1", "entity 1 column"), ("entity2", "entity 2 column"), ("relation", "relation label column")],
     "semantic_similarity": [],
     "summarization": [("source_text", "source text column"), ("summary", "reference summary column")],
     "question_answering": [("context", "context column"), ("question", "question column"), ("answer", "answer column")],
-    "text_generation": [("prompt", "prompt column"), ("completion", "completion / reference column")],
     "topic_modeling": [("text", "text column")],
 }
 
@@ -24,12 +21,9 @@ _SUPPORTED_COL_KEYS = {
     "classification_single": {"text", "label"},
     "classification_multi": {"text", "labels"},
     "ner": {"text", "entities"},
-    "pos": {"text", "tokens", "pos_tags"},
-    "relation_extraction": {"text", "entity1", "entity2", "relation"},
     "semantic_similarity": {"text_a", "text_b", "similarity", "query", "document", "relevance"},
     "summarization": {"source_text", "summary"},
     "question_answering": {"context", "question", "answer", "answer_start"},
-    "text_generation": {"prompt", "completion"},
     "topic_modeling": {"text", "label"},
 }
 
@@ -40,7 +34,7 @@ _TEXT_COL_KEYS = {
 }
 
 
-_ANNOTATION_COL_KEYS = {"entities", "pos_tags"}
+_ANNOTATION_COL_KEYS = {"entities"}
 
 
 def _norm(name: str) -> str:
@@ -83,7 +77,7 @@ def resolve_columns(df: pd.DataFrame, task_type: str, col_overrides: Optional[Di
 
 def primary_text_column_keys(task_type: str) -> List[str]:
     task = (task_type or "").strip().lower()
-    if task in {"classification_single", "classification_multi", "ner", "pos", "relation_extraction", "topic_modeling"}:
+    if task in {"classification_single", "classification_multi", "ner", "topic_modeling"}:
         return ["text"]
     if task == "semantic_similarity":
         return ["text_a", "text_b", "query", "document"]
@@ -91,8 +85,6 @@ def primary_text_column_keys(task_type: str) -> List[str]:
         return ["source_text"]
     if task == "question_answering":
         return ["context", "question"]
-    if task == "text_generation":
-        return ["prompt"]
     return []
 
 

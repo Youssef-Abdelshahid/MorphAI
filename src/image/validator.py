@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 from .config import (
+    DEPRECATED_TASK_TYPES,
     SUPPORTED_TASK_TYPES,
     VALID_TASK_TYPES,
     default_metric_for_task,
@@ -38,7 +39,6 @@ def _annotation_summary(root: Path) -> Dict[str, int]:
         "npy": 0,
         "npz": 0,
         "mask_like": 0,
-        "depth_like": 0,
     }
     for path in root.rglob("*"):
         if not path.is_file():
@@ -49,8 +49,6 @@ def _annotation_summary(root: Path) -> Dict[str, int]:
         name = path.stem.lower()
         if any(token in name for token in ["mask", "label", "seg", "instance"]):
             summary["mask_like"] += 1
-        if any(token in name for token in ["depth", "disp", "disparity"]):
-            summary["depth_like"] += 1
     return summary
 
 
@@ -66,16 +64,8 @@ def _task_validation_hints(task_type: str, annotations: Dict[str, int], classes:
         if annotations["json"] + annotations["xml"] + annotations["txt"] <= 0:
             errors.append("Object detection requires bounding box annotations (JSON, XML, or TXT).")
     elif task_type == "semantic_segmentation":
-        if annotations["mask_like"] + annotations["json"] + annotations["png"] if False else 0:
-            pass
         if annotations["mask_like"] + annotations["json"] + annotations["npy"] + annotations["npz"] <= 0:
             errors.append("Semantic segmentation requires segmentation masks or equivalent annotation files.")
-    elif task_type == "instance_segmentation":
-        if annotations["mask_like"] + annotations["json"] + annotations["xml"] <= 0:
-            errors.append("Instance segmentation requires instance masks or instance-level annotation files.")
-    elif task_type == "keypoint":
-        if annotations["json"] + annotations["txt"] + annotations["csv"] <= 0:
-            errors.append("Keypoint / pose estimation requires keypoint annotations.")
     elif task_type == "retrieval":
         if len(classes) < 2 and annotations["json"] + annotations["csv"] <= 0:
             errors.append("Image retrieval needs labels, query-gallery structure, or retrieval pairs.")
@@ -85,12 +75,6 @@ def _task_validation_hints(task_type: str, annotations: Dict[str, int], classes:
     elif task_type == "ocr":
         if annotations["txt"] + annotations["json"] + annotations["csv"] <= 0:
             errors.append("OCR requires text transcriptions or OCR label files.")
-    elif task_type == "generation":
-        if len(classes) < 1:
-            errors.append("Image generation / synthesis needs at least one folder of images.")
-    elif task_type == "depth":
-        if annotations["depth_like"] + annotations["npy"] + annotations["npz"] <= 0:
-            errors.append("Depth estimation requires depth maps or depth annotation files.")
     return errors
 
 
@@ -160,6 +144,11 @@ def validate_image_run(config, root: Path) -> list:
 
     if not task_type:
         errors.append("An image task type is required.")
+    elif task_type in DEPRECATED_TASK_TYPES:
+        errors.append(
+            f"Task type '{task_type}' has been deprecated and is no longer supported. "
+            f"Supported task types: {sorted(SUPPORTED_TASK_TYPES)}"
+        )
     elif task_type not in VALID_TASK_TYPES:
         errors.append(
             f"Task type '{config.task_type}' is not valid for image data. "
@@ -210,6 +199,12 @@ def validate_internal_dataset(config, dataset) -> list:
     if not task_type:
         errors.append("An image task type is required.")
         return errors
+    if task_type in DEPRECATED_TASK_TYPES:
+        errors.append(
+            f"Task type '{task_type}' has been deprecated and is no longer supported. "
+            f"Supported task types: {sorted(SUPPORTED_TASK_TYPES)}"
+        )
+        return errors
     if task_type not in SUPPORTED_TASK_TYPES:
         errors.append(
             f"Task type '{task_type}' is not yet supported for image data. "
@@ -237,10 +232,8 @@ def validate_internal_dataset(config, dataset) -> list:
 
     has_bboxes = any(s.bboxes for s in samples)
     has_masks = any(s.masks for s in samples)
-    has_keypoints = any(s.keypoints for s in samples)
     has_class_labels = any(s.labels for s in samples)
     has_text = any(s.transcription for s in samples)
-    has_depth = any(s.depth_path for s in samples)
 
     if task_type == "classification":
         if not has_class_labels:
@@ -280,18 +273,6 @@ def validate_internal_dataset(config, dataset) -> list:
                 f"The selected input format '{input_format}' does not provide the segmentation "
                 "masks required for semantic segmentation."
             )
-    elif task_type == "instance_segmentation":
-        if not has_masks:
-            errors.append(
-                f"The selected input format '{input_format}' does not provide the instance "
-                "masks required for instance segmentation."
-            )
-    elif task_type == "keypoint":
-        if not has_keypoints:
-            errors.append(
-                f"The selected input format '{input_format}' does not provide the keypoint "
-                "annotations required for keypoint / pose estimation."
-            )
     elif task_type == "retrieval":
         if not has_class_labels:
             errors.append(
@@ -307,13 +288,6 @@ def validate_internal_dataset(config, dataset) -> list:
         if not has_text:
             errors.append(
                 f"OCR requires transcriptions / text labels which are not provided by '{input_format}'."
-            )
-    elif task_type == "generation":
-        pass
-    elif task_type == "depth":
-        if not has_depth:
-            errors.append(
-                f"Depth estimation requires depth maps / targets which are not provided by '{input_format}'."
             )
 
     return errors

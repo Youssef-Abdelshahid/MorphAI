@@ -4,7 +4,7 @@ from typing import Dict, List
 import pandas as pd
 
 from .columns import REQUIRED_COLUMN_KEYS, _SUPPORTED_COL_KEYS, resolve_columns
-from .config import SUPPORTED_TASK_TYPES, VALID_TASK_TYPES, default_metric_for_task, normalize_task_type, valid_metrics_for_task
+from .config import DEPRECATED_TASK_TYPES, SUPPORTED_TASK_TYPES, VALID_TASK_TYPES, default_metric_for_task, normalize_task_type, valid_metrics_for_task
 from .profiler import annotation_validity_summary
 
 SUPPORTED_TEXT_EXTENSIONS = {".csv", ".xlsx", ".xls", ".json", ".jsonl", ".ndjson", ".zip"}
@@ -13,12 +13,9 @@ _TASK_FRIENDLY = {
     "classification_single": "text classification (single-label)",
     "classification_multi": "text classification (multi-label)",
     "ner": "named entity recognition",
-    "pos": "part-of-speech tagging",
-    "relation_extraction": "relation extraction",
     "semantic_similarity": "semantic similarity / search",
     "summarization": "text summarization",
     "question_answering": "question answering",
-    "text_generation": "text generation",
     "topic_modeling": "topic modeling",
 }
 
@@ -95,6 +92,12 @@ def validate_text_run(config, df: pd.DataFrame) -> List[str]:
     if not task_type:
         errors.append("A text task type must be selected before running.")
         return errors
+    if task_type in DEPRECATED_TASK_TYPES:
+        errors.append(
+            f"Task type '{task_type}' has been deprecated and is no longer supported. "
+            f"Supported tasks: {', '.join(sorted(SUPPORTED_TASK_TYPES))}."
+        )
+        return errors
     if task_type not in VALID_TASK_TYPES:
         errors.append(
             f"Task type '{config.task_type}' is not supported for text data. "
@@ -166,7 +169,7 @@ def validate_text_run(config, df: pd.DataFrame) -> List[str]:
         if isinstance(col, str) and col in df.columns and df[col].fillna("").astype(str).str.strip().eq("").all():
             errors.append(f"The column '{col}' appears to be entirely empty — no usable text found.")
 
-    if not errors and task_type in {"ner", "pos", "question_answering", "relation_extraction"}:
+    if not errors and task_type in {"ner", "question_answering"}:
         validity = annotation_validity_summary(df, task_type, cols)
         if validity.get("invalid_count", 0) > 0:
             errors.append(

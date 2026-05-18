@@ -7,7 +7,6 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 from scipy import signal
 from sklearn.metrics import accuracy_score, average_precision_score, f1_score, precision_score, recall_score, roc_auc_score
-from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
 from sklearn.model_selection import StratifiedKFold
 from sklearn.neural_network import MLPClassifier
@@ -873,55 +872,6 @@ def _noise_suppression(spec, profile, metric_priority):
     return _make_result(spec, "noise_suppression", metric_priority, selected, raw, norm, {"spectral_gating_baseline": raw}, {"metric_note": note, "clean_references": clean_refs, "paired_evaluations": paired_evaluations, "read_failures": failures, "audio_representation": "STFT magnitude spectrogram", "model_family": "spectral gating noise suppression baseline", "models": ["spectral_gating_baseline"], "baselines": ["spectral_gating", "median_filter_residual"]}, evaluation_mode, summary, 0.0, {f"{k}_std": _safe_std(improvements) if k in {"snr_improvement", "si_sdr_improvement"} else 0.0 for k in raw}, {f"{k}_std": 0.0 for k in norm}, 1, 1)
 
 
-def _diarization_proxy(spec, profile, metric_priority):
-    segment_sets = []
-    failures = []
-    for path in profile.audio_paths:
-        try:
-            sr, y = _prepare_signal(path, spec)
-            embs, _ = _segment_embeddings(sr, y, spec, segment_sec=1.0)
-            if len(embs):
-                segment_sets.append(embs)
-        except Exception as exc:
-            failures.append(f"{Path(path).name}: {exc}")
-    if not segment_sets:
-        raise ValueError("Speaker diarization proxy evaluation needs readable speech-like segments.")
-    X = np.vstack(segment_sets)
-    scaler = StandardScaler()
-    Xs = scaler.fit_transform(X)
-    target_k = max(2, min(profile.n_classes if profile.n_classes >= 2 else 2, len(Xs) - 1, 8))
-    if len(Xs) <= target_k:
-        raise ValueError("Speaker diarization proxy evaluation needs more speech segments than estimated speakers.")
-    clusterings = {
-        "mfcc_segment_kmeans": KMeans(n_clusters=target_k, random_state=42, n_init=5).fit_predict(Xs),
-        "mfcc_segment_agglomerative": AgglomerativeClustering(n_clusters=target_k).fit_predict(Xs),
-    }
-    stability_values = []
-    balance_values = []
-    for labels in clusterings.values():
-        counts = np.bincount(labels)
-        balance_values.append(float(np.min(counts) / max(np.max(counts), 1)))
-        stability_values.append(1.0 - float(np.mean(np.abs(np.diff(labels))) > 0) if len(labels) > 1 else 0.5)
-    speech_coverage = _clamp_01(1.0 - profile.silence_ratio)
-    cluster_quality = _clamp_01(0.5 * _safe_mean(balance_values) + 0.5 * _safe_mean(stability_values))
-    base_der = _clamp_01(1.0 - (0.55 * cluster_quality + 0.30 * speech_coverage + 0.15 * (1.0 - profile.estimated_noise_ratio)))
-    raw = {
-        "diarization_error_rate": base_der,
-        "speaker_confusion": _clamp_01(1.0 - cluster_quality),
-        "missed_speech": _clamp_01(1.0 - speech_coverage),
-        "false_alarm_speech": _clamp_01(profile.estimated_noise_ratio),
-    }
-    norm = {
-        "diarization_error_rate": _clamp_01(1.0 - raw["diarization_error_rate"]),
-        "speaker_confusion": _clamp_01(1.0 - raw["speaker_confusion"]),
-        "missed_speech": _clamp_01(1.0 - raw["missed_speech"]),
-        "false_alarm_speech": _clamp_01(1.0 - raw["false_alarm_speech"]),
-    }
-    selected, note = _resolve_metric("speaker_diarization", metric_priority, raw.keys(), fallback="diarization_error_rate")
-    summary = f"Speaker diarization used an energy VAD, MFCC speaker segment embeddings, and clustering baseline with proxy diarization metrics. Selected metric: {metric_label(selected)} = {raw.get(selected, 0.0):.4f}. Normalized score = {norm.get(selected, 0.0):.4f}."
-    if note:
-        summary += f" {note}"
-    return _make_result(spec, "speaker_diarization", metric_priority, selected, raw, norm, {"vad_mfcc_clustering_diarization": raw}, {"metric_note": note, "annotation_proxy": True, "read_failures": failures, "audio_representation": "frame-level VAD + MFCC speaker embeddings", "model_family": "VAD + speaker embedding clustering baseline", "models": list(clusterings.keys()), "baselines": ["KMeans", "AgglomerativeClustering"], "estimated_speakers": target_k}, "proxy", summary, 0.0, {f"{k}_std": 0.0 for k in raw}, {f"{k}_std": 0.0 for k in norm}, 1, 2)
 
 
 def evaluate_pipeline(spec: AudioPipelineSpec, profile: AudioProfile, task_type: str, metric_priority: str) -> Dict[str, Any]:
@@ -942,8 +892,6 @@ def evaluate_pipeline(spec: AudioPipelineSpec, profile: AudioProfile, task_type:
             result = _anomaly(spec, profile, metric_priority)
         elif task_type == "noise_suppression":
             result = _noise_suppression(spec, profile, metric_priority)
-        elif task_type == "speaker_diarization":
-            result = _diarization_proxy(spec, profile, metric_priority)
         else:
             raise ValueError(f"Task type '{task_type}' is not supported by the audio evaluator.")
         result["elapsed_sec"] = round(time.perf_counter() - started, 3)

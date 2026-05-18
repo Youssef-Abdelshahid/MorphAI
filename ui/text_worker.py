@@ -75,6 +75,7 @@ class TextAgentWorker:
         data_path: Path,
         metric: str,
         task_type: str = "classification_single",
+        label_mode: str = "",
         domain: str = "",
         constraints: str = "",
         notes: str = "",
@@ -94,6 +95,7 @@ class TextAgentWorker:
         self.data_path = data_path
         self.metric = metric
         self.task_type = task_type
+        self.label_mode = label_mode
         self.domain = domain
         self.constraints = constraints
         self.notes = notes
@@ -123,6 +125,7 @@ class TextAgentWorker:
             data_path=self.data_path,
             metric=self.metric,
             task_type=self.task_type,
+            label_mode=self.label_mode,
             domain=self.domain,
             constraints=self.constraints,
             notes=self.notes,

@@ -19,12 +19,9 @@ _TASK_NAME_FOR_FILE = {
     "classification_single": "classification",
     "classification_multi": "multilabel_classification",
     "ner": "ner",
-    "pos": "pos",
-    "relation_extraction": "relation_extraction",
     "semantic_similarity": "semantic_similarity",
     "summarization": "summarization",
     "question_answering": "qa",
-    "text_generation": "generation",
     "topic_modeling": "topic_modeling",
 }
 

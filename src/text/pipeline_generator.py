@@ -75,9 +75,9 @@ def generate_pipelines(
     tc = task_context or {}
     constraints = tc.get("active_constraints") or []
     task_type = tc.get("task_type", profile.task_type)
-    sequence_labeling = task_type in {"ner", "pos"}
-    seq2seq = task_type in {"summarization", "question_answering", "text_generation", "semantic_similarity"}
-    classification_like = task_type in {"classification_single", "classification_multi", "relation_extraction"}
+    sequence_labeling = task_type in {"ner"}
+    seq2seq = task_type in {"summarization", "question_answering", "semantic_similarity"}
+    classification_like = task_type in {"classification_single", "classification_multi"}
     noisy = profile.noise_ratio > 0.1
     long_text = profile.avg_token_length > 300
     imbalance = "class_weight" if classification_like and profile.imbalance_ratio > 1.5 else "none"

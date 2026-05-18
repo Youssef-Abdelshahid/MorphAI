@@ -20,18 +20,22 @@ import matplotlib.patches as mpatches
 import numpy as np
 from src.image.config import (
     metric_label as image_metric_label,
+    task_display_name as image_task_display_name,
     valid_metrics_for_task as image_valid_metrics_for_task,
 )
 from src.audio.config import (
     metric_label as audio_metric_label,
+    task_display_name as audio_task_display_name,
     valid_metrics_for_task as audio_valid_metrics_for_task,
 )
 from src.text.config import (
     metric_label as text_metric_label,
+    task_display_name as text_task_display_name,
     valid_metrics_for_task as text_valid_metrics_for_task,
 )
 from src.tabular.config import (
     metric_label as tabular_metric_label,
+    task_display_name as tabular_task_display_name,
     valid_metrics_for_task as tabular_valid_metrics_for_task,
 )
 
@@ -100,6 +104,17 @@ def metric_label(metric: str) -> str:
     if image_label != metric.replace("_", " ").title():
         return image_label
     return tabular_metric_label(metric)
+
+
+def task_display_name(task_type: str, modality: str = "") -> str:
+    mod = (modality or "").strip().lower()
+    if mod == "image":
+        return image_task_display_name(task_type)
+    if mod == "audio":
+        return audio_task_display_name(task_type)
+    if mod == "text":
+        return text_task_display_name(task_type)
+    return tabular_task_display_name(task_type)
 
 
 # ── Matplotlib helpers ────────────────────────────────────────────────────────
@@ -1124,15 +1139,21 @@ def export_report_pdf(report: dict, output_path: Path) -> Path:
     story.append(Spacer(1, 0.4 * cm))
 
     # Task & Problem Context (shown when any field is non-empty)
+    modality_name = report.get("modality") or "Tabular"
+    task_name_val = tc.get("task_name") or task_display_name(tc.get("task_type", ""), modality_name)
     tc_fields = [
-        ("task_type",           "Task type"),
         ("domain",              "Domain / use case"),
         ("problem_description", "Problem description"),
         ("data_meaning",        "Data meaning"),
         ("constraints",         "Constraints"),
     ]
-    tc_rows_data = [(label, str(tc.get(key, "")))
-                    for key, label in tc_fields if tc.get(key)]
+    tc_rows_data = []
+    if task_name_val:
+        tc_rows_data.append(("Task type", str(task_name_val)))
+    if tc.get("label_mode"):
+        tc_rows_data.append(("Label mode", str(tc.get("label_mode"))))
+    tc_rows_data += [(label, str(tc.get(key, "")))
+                     for key, label in tc_fields if tc.get(key)]
     if tc_rows_data:
         story.append(_p("Task & Problem Context", h2_sty))
         story.append(Spacer(1, 0.2 * cm))

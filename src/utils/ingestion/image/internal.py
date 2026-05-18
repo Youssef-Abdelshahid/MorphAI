@@ -320,34 +320,13 @@ def _write_sidecar(folder: Path, stem: str, sample: ImageSample, task_type: str)
             payload = {"image_id": sample.image_id, "boxes": boxes}
             (folder / f"{stem}.json").write_text(json.dumps(payload), encoding="utf-8")
         return
-    if task_type in {"semantic_segmentation", "instance_segmentation"}:
+    if task_type == "semantic_segmentation":
         for idx, mask in enumerate(sample.masks):
-            mask_path = _materialize_mask(mask, folder, f"{stem}_mask_{idx}", sample.width, sample.height)
-            if mask_path is None:
-                continue
-        return
-    if task_type == "keypoint":
-        all_points = []
-        for instance in sample.keypoints:
-            for (x, y, v) in instance:
-                all_points.append({"x": float(x), "y": float(y), "v": float(v)})
-        if all_points:
-            (folder / f"{stem}_keypoints.json").write_text(
-                json.dumps({"keypoints": all_points}), encoding="utf-8"
-            )
+            _materialize_mask(mask, folder, f"{stem}_mask_{idx}", sample.width, sample.height)
         return
     if task_type == "ocr":
         if sample.transcription is not None:
             (folder / f"{stem}_text.txt").write_text(str(sample.transcription), encoding="utf-8")
-        return
-    if task_type == "depth":
-        if sample.depth_path:
-            try:
-                src = Path(sample.depth_path)
-                if src.exists():
-                    shutil.copy2(src, folder / f"{stem}_depth{src.suffix.lower() or '.png'}")
-            except Exception:
-                pass
         return
 
 

@@ -11,18 +11,22 @@ from datetime import datetime
 import customtkinter as ctk
 from src.image.config import (
     metric_label as image_metric_label,
+    task_display_name as image_task_display_name,
     valid_metrics_for_task as image_valid_metrics_for_task,
 )
 from src.audio.config import (
     metric_label as audio_metric_label,
+    task_display_name as audio_task_display_name,
     valid_metrics_for_task as audio_valid_metrics_for_task,
 )
 from src.text.config import (
     metric_label as text_metric_label,
+    task_display_name as text_task_display_name,
     valid_metrics_for_task as text_valid_metrics_for_task,
 )
 from src.tabular.config import (
     metric_label as tabular_metric_label,
+    task_display_name as tabular_task_display_name,
     valid_metrics_for_task as tabular_valid_metrics_for_task,
 )
 
@@ -35,12 +39,14 @@ except ImportError:
 
 from ui.constants import (
     BG_WIN, BG_BAR, BG_CARD,
-    ACCENT, ACCENT_H, SUCCESS, BORDER,
+    ACCENT, ACCENT_H, SUCCESS, BORDER, ROW_HIGHLIGHT,
     TXT, TXT_MUTED,
     NAV_W,
     FONT_FAMILY,
 )
 from ui.helpers import _card, _sec_label
+
+P = 22
 
 
 class ReportViewMixin:
@@ -77,6 +83,36 @@ class ReportViewMixin:
             view, fg_color=BG_WIN, scrollbar_button_color=BORDER,
         )
 
+        self._report_chart_refs: list = []
+        self._report_resize_job = None
+        self._report_resize_w = 0
+        self._report_scroll.bind("<Configure>", self._on_report_resize, add="+")
+
+    def _on_report_resize(self, event=None) -> None:
+        if self._report_resize_job is not None:
+            try:
+                self.after_cancel(self._report_resize_job)
+            except Exception:
+                pass
+        self._report_resize_job = self.after(150, self._do_report_resize)
+
+    def _do_report_resize(self) -> None:
+        self._report_resize_job = None
+        try:
+            win_w = self._report_scroll.winfo_width()
+            if win_w == self._report_resize_w:
+                return
+            self._report_resize_w = win_w
+            disp_w = max(400, win_w - NAV_W - 2 * P - 55) if win_w > NAV_W + 300 else max(400, win_w - 80)
+            for ci, orig_img in self._report_chart_refs:
+                disp_h = int(orig_img.height * disp_w / orig_img.width)
+                if disp_h > 500:
+                    disp_h = 500
+                    disp_w = int(orig_img.width * 500 / orig_img.height)
+                ci.configure(size=(disp_w, disp_h))
+        except Exception:
+            pass
+
     def _render_report(self, report: dict) -> None:
         """Render a report dict into the report view's scrollable frame."""
         self._report_placeholder.pack_forget()
@@ -92,12 +128,12 @@ class ReportViewMixin:
         results = report.get("results", [])
         metric   = best.get("selected_metric", cfg.get("metric", "f1"))
         task_type = report.get("task_context", {}).get("task_type", "")
-        P        = 22   # padx for all sections
-        is_image = report.get("modality") == "Image" or "n_images" in prof
-        is_audio = report.get("modality") == "Audio" or "n_audio_files" in prof
-        is_text = report.get("modality") == "Text" or "n_samples" in prof and "vocabulary_size_estimate" in prof
+        is_image = report.get("modality") == "Image"
+        is_audio = report.get("modality") == "Audio"
+        is_text = report.get("modality") == "Text"
         metric_label_fn = text_metric_label if is_text else audio_metric_label if is_audio else image_metric_label if is_image else tabular_metric_label
         valid_metrics_fn = text_valid_metrics_for_task if is_text else audio_valid_metrics_for_task if is_audio else image_valid_metrics_for_task if is_image else tabular_valid_metrics_for_task
+        task_label_fn = text_task_display_name if is_text else audio_task_display_name if is_audio else image_task_display_name if is_image else tabular_task_display_name
         metric_names = valid_metrics_fn(task_type) or list(best.get("metrics", {}).keys())
         has_normalized_score = "final_score" in best
 
@@ -107,8 +143,8 @@ class ReportViewMixin:
         except Exception:
             ts_fmt = ts_raw
 
-        # ── Pre-generate charts for inline display ─────────────────────────
-        self._report_chart_refs: list = []
+        self._report_chart_refs = []
+        self._report_resize_w = 0
         self._chart_containers: dict = {}
 
         def _add_chart(chart_id: str, caption: str = "") -> None:
@@ -191,7 +227,7 @@ class ReportViewMixin:
                         except Exception: pass
                         return None
 
-                    _bm = best.get("metrics", {})
+                    _bm = best.get("raw_metrics", best.get("metrics", {}))
                     _bs = best.get("metrics_std", {})
                     _bp = best.get("per_model_metrics", {})
 
@@ -289,8 +325,12 @@ class ReportViewMixin:
             sec_hdr("1b  Task & Problem Context")
             c = _card(scroll)
             c.pack(fill="x", padx=P, pady=(0, 4))
+            task_name_val = tc.get("task_name") or task_label_fn(task_type)
+            if task_name_val:
+                kv_row(c, "Task type", task_name_val)
+            if tc.get("label_mode"):
+                kv_row(c, "Label mode", tc.get("label_mode"))
             for field_key, label in [
-                ("task_type",           "Task type"),
                 ("domain",              "Domain / use case"),
                 ("problem_description", "Problem description"),
                 ("data_meaning",        "Data meaning"),
@@ -475,7 +515,7 @@ class ReportViewMixin:
             _add_chart("_c_comp", "Text label distribution")
             _add_chart("_c_len", "Text length distribution")
             _add_chart("_c_qual", "Text noise indicators")
-        elif not (is_audio or is_text):
+        else:
             _add_chart("_c_comp", "Feature composition")
             _add_chart("_c_qual", "Dataset quality indicators")
 
@@ -504,7 +544,7 @@ class ReportViewMixin:
 
         for mk in metric_names:
             is_p  = (mk == metric)
-            row_c = "#1a2540" if is_p else BG_CARD
+            row_c = ROW_HIGHLIGHT if is_p else BG_CARD
             mrow  = ctk.CTkFrame(scroll, fg_color=row_c, corner_radius=0, height=26)
             mrow.pack(fill="x", padx=P, pady=1)
             mrow.pack_propagate(False)
@@ -571,7 +611,7 @@ class ReportViewMixin:
             )
         for r in results:
             is_best = (r.get("rank") == 1)
-            row_c   = "#1a2540" if is_best else BG_CARD
+            row_c   = ROW_HIGHLIGHT if is_best else BG_CARD
             rrow    = ctk.CTkFrame(scroll, fg_color=row_c, corner_radius=0, height=24)
             rrow.pack(fill="x", padx=P, pady=1)
             rrow.pack_propagate(False)

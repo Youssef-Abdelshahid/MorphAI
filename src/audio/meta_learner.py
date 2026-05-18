@@ -13,7 +13,7 @@ MIN_RUNS_TO_USE = 5
 MIN_RUNS_FULL_WEIGHT = 20
 MAX_META_WEIGHT = 0.25
 
-_TASKS = ["classification", "asr", "speaker_recognition", "speaker_diarization", "sound_event_detection", "vad", "anomaly", "noise_suppression", "other"]
+_TASKS = ["classification", "asr", "speaker_recognition", "sound_event_detection", "vad", "anomaly", "noise_suppression", "other"]
 _TASK_MAP = {name: i for i, name in enumerate(_TASKS)}
 _FEAT_MAP = {"mfcc": 0, "mel_spectrogram": 1, "log_mel_spectrogram": 2, "raw_waveform": 3}
 _NORM_MAP = {"none": 0, "rms": 1, "peak": 2}

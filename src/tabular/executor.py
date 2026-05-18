@@ -1,4 +1,3 @@
-import ast
 import math
 import re
 import time
@@ -10,35 +9,30 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 from imblearn.over_sampling import RandomOverSampler, SMOTE
-from scipy.stats import kendalltau, spearmanr
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.cluster import AgglomerativeClustering, DBSCAN, KMeans
 from sklearn.compose import ColumnTransformer
-from sklearn.decomposition import PCA
 from sklearn.ensemble import IsolationForest, RandomForestRegressor
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.feature_selection import VarianceThreshold
 from sklearn.impute import KNNImputer, SimpleImputer
-from sklearn.linear_model import LinearRegression, LogisticRegression, Ridge
+from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import (
     accuracy_score,
     calinski_harabasz_score,
     davies_bouldin_score,
     f1_score,
-    ndcg_score,
     precision_score,
     recall_score,
     roc_auc_score,
     silhouette_score,
 )
 from sklearn.model_selection import KFold, StratifiedKFold, TimeSeriesSplit
-from sklearn.multiclass import OneVsRestClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import LocalOutlierFactor
 from sklearn.pipeline import Pipeline as SklearnPipeline
 from sklearn.preprocessing import (
     MinMaxScaler,
-    MultiLabelBinarizer,
     OrdinalEncoder,
     PowerTransformer,
     RobustScaler,
@@ -47,19 +41,9 @@ from sklearn.preprocessing import (
 from sklearn.svm import OneClassSVM
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 
-from .config import default_metric_for_task, metric_label, normalize_task_type, valid_metrics_for_task
+from .config import default_metric_for_task, metric_label, normalize_task_type
 from .preprocessing import PipelineSpec
 from .profiler import DataProfile
-
-try:
-    from sklearn.manifold import trustworthiness
-except ImportError:
-    trustworthiness = None
-
-try:
-    from sklearn.metrics import cohen_kappa_score
-except ImportError:
-    cohen_kappa_score = None
 
 try:
     from sklearn.preprocessing import OneHotEncoder as _OHE
@@ -453,114 +437,6 @@ def _evaluate_binary_or_multiclass(
     )
 
 
-def _parse_multilabel_value(value: Any) -> List[str]:
-    if value is None or (isinstance(value, float) and np.isnan(value)):
-        return []
-    if isinstance(value, (list, tuple, set)):
-        return [str(v).strip() for v in value if str(v).strip()]
-    if isinstance(value, str):
-        stripped = value.strip()
-        if not stripped:
-            return []
-        if stripped.startswith("[") and stripped.endswith("]"):
-            try:
-                parsed = ast.literal_eval(stripped)
-                if isinstance(parsed, (list, tuple, set)):
-                    return [str(v).strip() for v in parsed if str(v).strip()]
-            except Exception:
-                pass
-        for sep in ["|", ";", ","]:
-            if sep in stripped:
-                return [part.strip() for part in stripped.split(sep) if part.strip()]
-        return [stripped]
-    return [str(value).strip()]
-
-
-def _evaluate_multilabel(
-    spec: PipelineSpec,
-    prepared: PreparedData,
-    metric_priority: str,
-) -> Dict[str, Any]:
-    if prepared.y is None:
-        raise ValueError("A target column is required for multi-label classification.")
-    label_sets = prepared.y.apply(_parse_multilabel_value)
-    mlb = MultiLabelBinarizer()
-    y_bin = mlb.fit_transform(label_sets)
-    if y_bin.shape[1] < 1:
-        raise ValueError("Multi-label target did not contain any valid labels.")
-
-    n_splits = min(5, max(2, len(prepared.X) // 10))
-    splitters = KFold(n_splits=n_splits, shuffle=True, random_state=42)
-    models = {
-        "ovr_logreg": lambda: OneVsRestClassifier(LogisticRegression(solver="liblinear", max_iter=1000, random_state=42)),
-        "ovr_tree": lambda: OneVsRestClassifier(DecisionTreeClassifier(max_depth=6, random_state=42)),
-        "ovr_gnb": lambda: OneVsRestClassifier(GaussianNB()),
-    }
-    per_model_raw: Dict[str, Dict[str, float]] = {}
-    per_model_norm: Dict[str, Dict[str, float]] = {}
-
-    for model_name, factory in models.items():
-        fold_metrics: Dict[str, List[float]] = {}
-        for train_idx, test_idx in splitters.split(prepared.X):
-            X_train, X_test = _fit_transform_split(spec, prepared, train_idx, test_idx)
-            y_train = y_bin[list(train_idx)]
-            y_test = y_bin[list(test_idx)]
-            model = factory()
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", category=ConvergenceWarning)
-                model.fit(X_train, y_train)
-            y_pred = model.predict(X_test)
-            metrics = {
-                "micro_f1": f1_score(y_test, y_pred, average="micro", zero_division=0),
-                "macro_f1": f1_score(y_test, y_pred, average="macro", zero_division=0),
-                "hamming_loss": float(np.not_equal(y_test, y_pred).mean()),
-                "subset_accuracy": accuracy_score(y_test, y_pred),
-            }
-            for metric_name, metric_value in metrics.items():
-                fold_metrics.setdefault(metric_name, []).append(float(metric_value))
-
-        per_model_raw[model_name] = {k: _safe_mean(v) for k, v in fold_metrics.items()}
-        per_model_norm[model_name] = {
-            "micro_f1": _clamp_01(per_model_raw[model_name].get("micro_f1", 0.0)),
-            "macro_f1": _clamp_01(per_model_raw[model_name].get("macro_f1", 0.0)),
-            "hamming_loss": _clamp_01(1.0 - per_model_raw[model_name].get("hamming_loss", 1.0)),
-            "subset_accuracy": _clamp_01(per_model_raw[model_name].get("subset_accuracy", 0.0)),
-        }
-
-    raw_metrics, raw_std, norm_metrics, norm_std = _aggregate_model_metrics(per_model_raw, per_model_norm)
-    selected_metric, metric_note = _resolve_metric("multilabel", metric_priority, raw_metrics.keys(), fallback="micro_f1")
-    summary = (
-        f"{n_splits}-fold multi-label evaluation across {len(models)} One-vs-Rest classifiers. "
-        f"Selected metric: {metric_label(selected_metric)} = {raw_metrics.get(selected_metric, 0.0):.4f}. "
-        f"Normalized score = {norm_metrics.get(selected_metric, 0.0):.4f}."
-    )
-    if metric_note:
-        summary = f"{summary} {metric_note}"
-    return _make_result(
-        spec,
-        "multilabel",
-        metric_priority,
-        selected_metric,
-        raw_metrics,
-        norm_metrics,
-        per_model_raw,
-        {
-            "n_labels": int(y_bin.shape[1]),
-            "metric_note": metric_note,
-            "model_family": "one-vs-rest multi-label classifier",
-            "models": list(models.keys()),
-            "baselines": ["OneVsRestClassifier(LogisticRegression)", "OneVsRestClassifier(DecisionTreeClassifier)", "OneVsRestClassifier(GaussianNB)"],
-        },
-        "supervised",
-        summary,
-        0.0,
-        metrics_std=raw_std,
-        normalized_metrics_std=norm_std,
-        n_splits=n_splits,
-        n_models=len(models),
-    )
-
-
 def _normalize_regression_metric(metric_name: str, value: float, scales: Dict[str, float]) -> float:
     if metric_name == "r2":
         return _clamp_01((value + 1.0) / 2.0)
@@ -658,244 +534,6 @@ def _evaluate_regression_like(
             "baselines": ["LinearRegression", "DecisionTreeRegressor", "RandomForestRegressor"],
         },
         "supervised",
-        summary,
-        0.0,
-        metrics_std=raw_std,
-        normalized_metrics_std=norm_std,
-        n_splits=n_splits,
-        n_models=len(models),
-    )
-
-
-def _evaluate_ordinal(
-    spec: PipelineSpec,
-    prepared: PreparedData,
-    metric_priority: str,
-) -> Dict[str, Any]:
-    if prepared.y is None:
-        raise ValueError("A target column is required for ordinal regression.")
-    y_series = prepared.y.reset_index(drop=True)
-    if pd.api.types.is_numeric_dtype(y_series):
-        ordered_values = sorted(pd.Series(y_series).dropna().unique())
-    else:
-        ordered_values = sorted(pd.Series(y_series.astype(str)).dropna().unique())
-    mapping = {value: idx for idx, value in enumerate(ordered_values)}
-    y_ord = y_series.map(mapping)
-    if y_ord.isna().any():
-        raise ValueError("Ordinal target contains unmapped values.")
-    prepared = PreparedData(
-        X=prepared.X.reset_index(drop=True),
-        y=y_ord.astype(int).reset_index(drop=True),
-        num_cols=prepared.num_cols,
-        cat_cols=prepared.cat_cols,
-    )
-    n_classes = len(mapping)
-    if n_classes < 2:
-        raise ValueError("Ordinal regression needs at least 2 ordered classes.")
-
-    result = _evaluate_regression_like(spec, prepared, "ordinal", metric_priority)
-    per_model_raw = {}
-    per_model_norm = {}
-    n_splits = min(5, len(prepared.X))
-    splitters = KFold(n_splits=n_splits, shuffle=True, random_state=42)
-    scales = {"mae": max(1.0, float(n_classes - 1))}
-    models = {
-        "linear": lambda: LinearRegression(),
-        "tree": lambda: DecisionTreeRegressor(max_depth=6, random_state=42),
-        "rf": lambda: RandomForestRegressor(n_estimators=40, max_depth=6, random_state=42, n_jobs=1),
-    }
-
-    for model_name, factory in models.items():
-        fold_metrics: Dict[str, List[float]] = {}
-        for train_idx, test_idx in splitters.split(prepared.X):
-            X_train, X_test = _fit_transform_split(spec, prepared, train_idx, test_idx)
-            y_train = prepared.y.iloc[list(train_idx)].to_numpy(dtype=float)
-            y_test = prepared.y.iloc[list(test_idx)].to_numpy(dtype=int)
-            model = factory()
-            model.fit(X_train, y_train)
-            y_pred_cont = np.asarray(model.predict(X_test), dtype=float)
-            y_pred = np.clip(np.rint(y_pred_cont), 0, n_classes - 1).astype(int)
-            mae = float(np.mean(np.abs(y_test - y_pred)))
-            accuracy = accuracy_score(y_test, y_pred)
-            metrics = {"mae": mae, "accuracy": accuracy}
-            if cohen_kappa_score is not None:
-                metrics["quadratic_weighted_kappa"] = float(
-                    cohen_kappa_score(y_test, y_pred, weights="quadratic")
-                )
-            for metric_name, metric_value in metrics.items():
-                fold_metrics.setdefault(metric_name, []).append(float(metric_value))
-
-        per_model_raw[model_name] = {k: _safe_mean(v) for k, v in fold_metrics.items()}
-        normalized = {
-            "mae": _clamp_01(1.0 - per_model_raw[model_name].get("mae", scales["mae"]) / scales["mae"]),
-            "accuracy": _clamp_01(per_model_raw[model_name].get("accuracy", 0.0)),
-        }
-        if "quadratic_weighted_kappa" in per_model_raw[model_name]:
-            normalized["quadratic_weighted_kappa"] = _clamp_01(
-                (per_model_raw[model_name]["quadratic_weighted_kappa"] + 1.0) / 2.0
-            )
-        per_model_norm[model_name] = normalized
-
-    raw_metrics, raw_std, norm_metrics, norm_std = _aggregate_model_metrics(per_model_raw, per_model_norm)
-    fallback = "quadratic_weighted_kappa" if "quadratic_weighted_kappa" in raw_metrics else "mae"
-    selected_metric, metric_note = _resolve_metric("ordinal", metric_priority, raw_metrics.keys(), fallback=fallback)
-    summary = (
-        f"{n_splits}-fold ordinal evaluation with rounded regression baselines across {len(models)} models. "
-        f"Selected metric: {metric_label(selected_metric)} = {raw_metrics.get(selected_metric, 0.0):.4f}. "
-        f"Normalized score = {norm_metrics.get(selected_metric, 0.0):.4f}."
-    )
-    if metric_note:
-        summary = f"{summary} {metric_note}"
-    return _make_result(
-        spec,
-        "ordinal",
-        metric_priority,
-        selected_metric,
-        raw_metrics,
-        norm_metrics,
-        per_model_raw,
-        {
-            "ordinal_levels": ordered_values,
-            "regression_summary": result["evaluation_summary"],
-            "metric_note": metric_note,
-            "model_family": "ordinal regressor with rounded predictions",
-            "models": list(models.keys()),
-            "baselines": ["LinearRegression(rounded)", "DecisionTreeRegressor(rounded)", "RandomForestRegressor(rounded)"],
-        },
-        "supervised",
-        summary,
-        0.0,
-        metrics_std=raw_std,
-        normalized_metrics_std=norm_std,
-        n_splits=n_splits,
-        n_models=len(models),
-    )
-
-
-def _find_group_column(df: pd.DataFrame, target_col: Optional[str]) -> Optional[str]:
-    candidates = ["group_id", "query_id", "qid", "session_id", "search_id", "user_id"]
-    lowered = {c.lower(): c for c in df.columns if c != target_col}
-    for candidate in candidates:
-        if candidate in lowered:
-            return lowered[candidate]
-    return None
-
-
-def _ranking_metrics(y_true: np.ndarray, y_score: np.ndarray, groups: Optional[np.ndarray]) -> Dict[str, float]:
-    metrics: Dict[str, float] = {}
-    if groups is not None:
-        ndcgs = []
-        for group_id in pd.Series(groups).unique():
-            mask = groups == group_id
-            if int(np.sum(mask)) < 2:
-                continue
-            true_group = np.asarray(y_true[mask], dtype=float)
-            pred_group = np.asarray(y_score[mask], dtype=float)
-            if len(np.unique(true_group)) < 2:
-                continue
-            try:
-                ndcgs.append(float(ndcg_score(true_group.reshape(1, -1), pred_group.reshape(1, -1))))
-            except Exception:
-                pass
-        if ndcgs:
-            metrics["ndcg"] = _safe_mean(ndcgs)
-    else:
-        if len(np.unique(y_true)) >= 2 and len(y_true) >= 2:
-            metrics["ndcg"] = float(ndcg_score(y_true.reshape(1, -1), y_score.reshape(1, -1)))
-    if len(y_true) >= 2:
-        sp = spearmanr(y_true, y_score, nan_policy="omit").correlation
-        kt = kendalltau(y_true, y_score, nan_policy="omit").correlation
-        if sp is not None and np.isfinite(sp):
-            metrics["spearman"] = float(sp)
-        if kt is not None and np.isfinite(kt):
-            metrics["kendall_tau"] = float(kt)
-    return metrics
-
-
-def _evaluate_ranking(
-    spec: PipelineSpec,
-    df: pd.DataFrame,
-    profile: DataProfile,
-    metric_priority: str,
-) -> Dict[str, Any]:
-    prepared = _prepare_dataframe(spec, df, profile, "ranking")
-    if prepared.y is None:
-        raise ValueError("A relevance target column is required for ranking.")
-    y = pd.to_numeric(prepared.y, errors="coerce").reset_index(drop=True)
-    mask = y.notna()
-    prepared = PreparedData(
-        X=prepared.X.loc[mask].reset_index(drop=True),
-        y=y.loc[mask].reset_index(drop=True),
-        num_cols=prepared.num_cols,
-        cat_cols=prepared.cat_cols,
-    )
-    if len(prepared.X) < 10:
-        raise ValueError("Ranking evaluation needs at least 10 usable rows.")
-    group_col = _find_group_column(df, profile.target_col)
-    groups = df.loc[mask, group_col].reset_index(drop=True).to_numpy() if group_col else None
-    models = {
-        "ridge": lambda: Ridge(alpha=1.0),
-        "tree": lambda: DecisionTreeRegressor(max_depth=6, random_state=42),
-        "rf": lambda: RandomForestRegressor(n_estimators=40, max_depth=6, random_state=42, n_jobs=1),
-    }
-    n_splits = min(5, len(prepared.X))
-    splitters = KFold(n_splits=n_splits, shuffle=True, random_state=42)
-    per_model_raw: Dict[str, Dict[str, float]] = {}
-    per_model_norm: Dict[str, Dict[str, float]] = {}
-
-    for model_name, factory in models.items():
-        fold_metrics: Dict[str, List[float]] = {}
-        for train_idx, test_idx in splitters.split(prepared.X):
-            X_train, X_test = _fit_transform_split(spec, prepared, train_idx, test_idx)
-            y_train = prepared.y.iloc[list(train_idx)].to_numpy(dtype=float)
-            y_test = prepared.y.iloc[list(test_idx)].to_numpy(dtype=float)
-            model = factory()
-            model.fit(X_train, y_train)
-            y_pred = np.asarray(model.predict(X_test), dtype=float)
-            fold_group = groups[list(test_idx)] if groups is not None else None
-            metrics = _ranking_metrics(y_test, y_pred, fold_group)
-            for metric_name, metric_value in metrics.items():
-                fold_metrics.setdefault(metric_name, []).append(float(metric_value))
-
-        per_model_raw[model_name] = {k: _safe_mean(v) for k, v in fold_metrics.items()}
-        per_model_norm[model_name] = {
-            "ndcg": _clamp_01(per_model_raw[model_name].get("ndcg", 0.0)),
-            "spearman": _clamp_01((per_model_raw[model_name].get("spearman", -1.0) + 1.0) / 2.0),
-            "kendall_tau": _clamp_01((per_model_raw[model_name].get("kendall_tau", -1.0) + 1.0) / 2.0),
-        }
-
-    raw_metrics, raw_std, norm_metrics, norm_std = _aggregate_model_metrics(per_model_raw, per_model_norm)
-    fallback = "ndcg" if "ndcg" in raw_metrics else "spearman"
-    selected_metric, metric_note = _resolve_metric("ranking", metric_priority, raw_metrics.keys(), fallback=fallback)
-    mode = "supervised"
-    summary = (
-        f"{n_splits}-fold ranking evaluation across {len(models)} score-predicting models. "
-        f"Selected metric: {metric_label(selected_metric)} = {raw_metrics.get(selected_metric, 0.0):.4f}. "
-        f"Normalized score = {norm_metrics.get(selected_metric, 0.0):.4f}."
-    )
-    if group_col:
-        summary = f"{summary} Group column: {group_col}."
-    else:
-        mode = "proxy"
-        summary = f"{summary} No explicit group/query column was found, so ranking was evaluated with a limited fallback."
-    if metric_note:
-        summary = f"{summary} {metric_note}"
-    return _make_result(
-        spec,
-        "ranking",
-        metric_priority,
-        selected_metric,
-        raw_metrics,
-        norm_metrics,
-        per_model_raw,
-        {
-            "group_column": group_col,
-            "metric_note": metric_note,
-            "model_family": "score-predicting ranking regressor",
-            "models": list(models.keys()),
-            "baselines": ["Ridge", "DecisionTreeRegressor", "RandomForestRegressor"],
-        },
-        mode,
         summary,
         0.0,
         metrics_std=raw_std,
@@ -1282,95 +920,6 @@ def _evaluate_anomaly(
     )
 
 
-def _evaluate_dimensionality_reduction(
-    spec: PipelineSpec,
-    prepared: PreparedData,
-    metric_priority: str,
-) -> Dict[str, Any]:
-    X = _transform_full_features(spec, prepared)
-    if X.shape[0] < 5 or X.shape[1] < 2:
-        raise ValueError("Dimensionality reduction needs at least 5 rows and 2 usable features.")
-    n_components = max(1, min(10, X.shape[1] - 1, X.shape[0] - 1))
-    reducer = PCA(n_components=n_components, random_state=42)
-    X_reduced = reducer.fit_transform(X)
-    X_reconstructed = reducer.inverse_transform(X_reduced)
-    explained = float(np.sum(reducer.explained_variance_ratio_))
-    reconstruction_error = float(np.sqrt(np.mean((X - X_reconstructed) ** 2)))
-    feature_scale = _safe_scale(float(np.std(X)), 1.0)
-    metrics = {
-        "explained_variance_ratio": explained,
-        "reconstruction_error": reconstruction_error,
-    }
-    normalized = {
-        "explained_variance_ratio": _clamp_01(explained),
-        "reconstruction_error": _clamp_01(1.0 / (1.0 + reconstruction_error / feature_scale)),
-    }
-    if trustworthiness is not None and X_reduced.shape[1] >= 1:
-        try:
-            metrics["trustworthiness"] = float(trustworthiness(X, X_reduced, n_neighbors=min(5, len(X) - 1)))
-            normalized["trustworthiness"] = _clamp_01(metrics["trustworthiness"])
-        except Exception:
-            pass
-
-    evaluator_details: Dict[str, Any] = {
-        "n_components": n_components,
-        "model_family": "linear dimensionality reduction",
-        "models": ["pca"],
-        "baselines": ["PCA"],
-    }
-    if prepared.y is not None and len(prepared.y) == len(prepared.X):
-        y = prepared.y.reset_index(drop=True)
-        if pd.api.types.is_numeric_dtype(y):
-            reg = LinearRegression()
-            reg.fit(X_reduced, y.to_numpy(dtype=float))
-            pred = reg.predict(X_reduced)
-            ss_res = float(np.sum((y.to_numpy(dtype=float) - pred) ** 2))
-            ss_tot = float(np.sum((y.to_numpy(dtype=float) - np.mean(y.to_numpy(dtype=float))) ** 2))
-            downstream = 1.0 - (ss_res / ss_tot) if ss_tot > 1e-12 else 0.0
-            metrics["downstream_score"] = downstream
-            normalized["downstream_score"] = _clamp_01((downstream + 1.0) / 2.0)
-        else:
-            clf = LogisticRegression(max_iter=1000, random_state=42)
-            clf.fit(X_reduced, y.astype(str))
-            pred = clf.predict(X_reduced)
-            downstream = f1_score(y.astype(str), pred, average="macro", zero_division=0)
-            metrics["downstream_score"] = downstream
-            normalized["downstream_score"] = _clamp_01(downstream)
-        evaluator_details["supervised_target_used"] = True
-    else:
-        evaluator_details["supervised_target_used"] = False
-
-    fallback = "downstream_score" if "downstream_score" in metrics else "explained_variance_ratio"
-    selected_metric, metric_note = _resolve_metric("dimensionality_reduction", metric_priority, metrics.keys(), fallback=fallback)
-    mode = "supervised" if evaluator_details["supervised_target_used"] else "unsupervised"
-    summary = (
-        f"Dimensionality reduction evaluated with PCA-based utility metrics. "
-        f"Selected metric: {metric_label(selected_metric)} = {metrics.get(selected_metric, 0.0):.4f}. "
-        f"Normalized score = {normalized.get(selected_metric, 0.0):.4f}."
-    )
-    if mode == "unsupervised":
-        summary = f"{summary} No target labels were available, so the score is based on internal structure-preservation metrics."
-    if metric_note:
-        summary = f"{summary} {metric_note}"
-    return _make_result(
-        spec,
-        "dimensionality_reduction",
-        metric_priority,
-        selected_metric,
-        metrics,
-        normalized,
-        {"pca": metrics},
-        evaluator_details,
-        mode,
-        summary,
-        0.0,
-        metrics_std={f"{k}_std": 0.0 for k in metrics},
-        normalized_metrics_std={f"{k}_std": 0.0 for k in normalized},
-        n_splits=1,
-        n_models=1,
-    )
-
-
 _TXN_DELIMS = ["|", ";", ","]
 
 
@@ -1548,14 +1097,10 @@ def evaluate_pipeline(
         if task_type not in {
             "binary",
             "multiclass",
-            "multilabel",
             "regression",
-            "ordinal",
-            "ranking",
             "time_series",
             "clustering",
             "anomaly",
-            "dimensionality_reduction",
             "association_rules",
         }:
             raise ValueError(f"Task type '{task_type}' is not supported by the tabular evaluator.")
@@ -1564,22 +1109,14 @@ def evaluate_pipeline(
             result = _evaluate_binary_or_multiclass(spec, _prepare_dataframe(spec, df, profile, task_type), "binary", metric)
         elif task_type == "multiclass":
             result = _evaluate_binary_or_multiclass(spec, _prepare_dataframe(spec, df, profile, task_type), "multiclass", metric)
-        elif task_type == "multilabel":
-            result = _evaluate_multilabel(spec, _prepare_dataframe(spec, df, profile, task_type), metric)
         elif task_type == "regression":
             result = _evaluate_regression_like(spec, _prepare_dataframe(spec, df, profile, task_type), "regression", metric)
-        elif task_type == "ordinal":
-            result = _evaluate_ordinal(spec, _prepare_dataframe(spec, df, profile, task_type), metric)
-        elif task_type == "ranking":
-            result = _evaluate_ranking(spec, df, profile, metric)
         elif task_type == "time_series":
             result = _evaluate_time_series(spec, _prepare_dataframe(spec, df, profile, task_type), metric)
         elif task_type == "clustering":
             result = _evaluate_clustering(spec, _prepare_dataframe(spec, df, profile, task_type), metric)
         elif task_type == "anomaly":
             result = _evaluate_anomaly(spec, df, profile, metric)
-        elif task_type == "dimensionality_reduction":
-            result = _evaluate_dimensionality_reduction(spec, _prepare_dataframe(spec, df, profile, task_type), metric)
         elif task_type == "association_rules":
             result = _evaluate_association_rules(spec, _prepare_dataframe(spec, df, profile, task_type), metric)
         else:

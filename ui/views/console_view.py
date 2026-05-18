@@ -20,6 +20,8 @@ from ui.constants import (
 )
 from ui.helpers import _ts
 
+_CONSOLE_MAX_LINES = 4000
+
 
 class ConsoleViewMixin:
     """Mixin that adds the Console view to App."""
@@ -83,6 +85,9 @@ class ConsoleViewMixin:
         self._console.configure(state="normal")
         self._console.insert("end", f"[{_ts()}] ", "TS")
         self._console.insert("end", text + "\n", level)
+        line_count = int(self._console.index("end-1c").split(".")[0])
+        if line_count > _CONSOLE_MAX_LINES:
+            self._console.delete("1.0", f"{line_count - _CONSOLE_MAX_LINES}.0")
         self._console.configure(state="disabled")
         self._console.see("end")
 

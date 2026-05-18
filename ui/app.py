@@ -13,10 +13,10 @@ Run via:
 
 from __future__ import annotations
 
+import multiprocessing
 import os
 import queue
 import sys
-import threading
 from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox
@@ -52,9 +52,7 @@ from ui.constants import (
     NAV_W, POLL_MS,
 )
 from ui.helpers import _open_file, _hsep
-from ui.worker import AgentWorker, ImageAgentWorker
-from ui.audio_worker import AudioAgentWorker
-from ui.text_worker import TextAgentWorker
+from ui.worker_runner import run_worker
 from src.tabular.config import default_metric_for_task
 from src.utils.ingestion import get_input_format, is_supported
 from ui.views.run_view import RunViewMixin
@@ -74,8 +72,8 @@ class App(
 ):
     def __init__(self) -> None:
         super().__init__()
-        self._q:            queue.Queue                = queue.Queue()
-        self._thread:       Optional[threading.Thread] = None
+        self._q                                        = multiprocessing.Queue()
+        self._proc:         Optional[multiprocessing.Process] = None
         self._csv_path:     Optional[Path]             = None
         self._cleaned_path: Optional[Path]             = None
         self._report_data:  Optional[dict]             = None
@@ -260,8 +258,16 @@ class App(
             text_color=TXT,
         )
 
+    def _start_worker(self, modality: str, args: tuple, kwargs: dict) -> None:
+        self._proc = multiprocessing.Process(
+            target=run_worker,
+            args=(modality, self._q, args, kwargs),
+            daemon=True,
+        )
+        self._proc.start()
+
     def _on_run(self) -> None:
-        if self._thread and self._thread.is_alive():
+        if self._proc and self._proc.is_alive():
             return
 
         modality = self._modality_var.get()
@@ -288,39 +294,51 @@ class App(
             if not img_metric or img_metric == "— select —":
                 img_metric = "f1"
 
+            from src.image.config import resolve_image_task, SUPPORTED_TASK_TYPES as _IMG_SUPPORTED
+            raw_task = ctx.get("task_type", "")
+            label_mode = ctx.get("label_mode", "")
+            backend_task = resolve_image_task(raw_task, label_mode)
+            if not backend_task or backend_task not in _IMG_SUPPORTED:
+                self._clog(
+                    f"Image task type '{raw_task}' is not supported or has been deprecated. "
+                    "Please select a supported image task type.",
+                    "ERROR",
+                )
+                self._switch_view("console")
+                return
+
             self._cleaned_path = None
             self._report_data  = None
             self._results_frame.pack_forget()
             self._step_lbl.configure(text="")
             self._set_status("Running", WARN)
 
-            from src.image.config import _IMG_TASK_BACKEND
-            raw_task = ctx.get("task_type", "")
-            backend_task = _IMG_TASK_BACKEND.get(raw_task, "classification")
-
-            worker = ImageAgentWorker(
-                self._q, self._csv_path, img_metric,
-                task_type=backend_task,
-                domain=ctx.get("domain", ""),
-                constraints=ctx.get("constraints", ""),
-                notes=ctx.get("notes", ""),
-                image_format=ctx.get("image_format", ""),
-                color_space=ctx.get("color_space", ""),
-                input_format=ctx.get("input_format", ""),
-                input_format_key=ctx.get("input_format_key", "zip_folder"),
-                annotation_path=ctx.get("annotation_path", ""),
-                image_dir=ctx.get("image_dir", ""),
-                annotation_dir=ctx.get("annotation_dir", ""),
-                label_dir=ctx.get("label_dir", ""),
-                class_config=ctx.get("class_config", ""),
-                split_selection=ctx.get("split_selection", ""),
+            self._start_worker(
+                "Image",
+                (self._csv_path, img_metric),
+                dict(
+                    task_type=backend_task,
+                    label_mode=label_mode,
+                    domain=ctx.get("domain", ""),
+                    constraints=ctx.get("constraints", ""),
+                    notes=ctx.get("notes", ""),
+                    image_format=ctx.get("image_format", ""),
+                    color_space=ctx.get("color_space", ""),
+                    input_format=ctx.get("input_format", ""),
+                    input_format_key=ctx.get("input_format_key", "zip_folder"),
+                    annotation_path=ctx.get("annotation_path", ""),
+                    image_dir=ctx.get("image_dir", ""),
+                    annotation_dir=ctx.get("annotation_dir", ""),
+                    label_dir=ctx.get("label_dir", ""),
+                    class_config=ctx.get("class_config", ""),
+                    split_selection=ctx.get("split_selection", ""),
+                ),
             )
-            self._thread = threading.Thread(target=worker.run, daemon=True)
-            self._thread.start()
 
             self._clear_context_fields()
             self._csv_path = None
             self._file_lbl.configure(text="No file selected", text_color=TXT_MUTED)
+            self._set_controls(False)
             return
 
         if modality == "Audio":
@@ -338,36 +356,47 @@ class App(
             self._results_frame.pack_forget()
             self._step_lbl.configure(text="")
             self._set_status("Running", WARN)
-            worker = AudioAgentWorker(
-                self._q, self._csv_path, audio_metric,
-                task_type=backend_task,
-                domain=ctx.get("domain", ""),
-                constraints=ctx.get("constraints", ""),
-                notes=ctx.get("notes", ""),
-                audio_format=ctx.get("audio_format", ""),
-                channel_layout=ctx.get("channel_layout", ""),
-                sample_rate=ctx.get("sample_rate", ""),
-                input_format=ctx.get("input_format", ""),
-                input_format_key=ctx.get("input_format_key", "zip_folder"),
-                metadata_path=ctx.get("metadata_path", ""),
-                record_path=ctx.get("record_path", ""),
-                field_overrides=ctx.get("audio_field_overrides", {}) or {},
+            self._start_worker(
+                "Audio",
+                (self._csv_path, audio_metric),
+                dict(
+                    task_type=backend_task,
+                    domain=ctx.get("domain", ""),
+                    constraints=ctx.get("constraints", ""),
+                    notes=ctx.get("notes", ""),
+                    audio_format=ctx.get("audio_format", ""),
+                    channel_layout=ctx.get("channel_layout", ""),
+                    sample_rate=ctx.get("sample_rate", ""),
+                    input_format=ctx.get("input_format", ""),
+                    input_format_key=ctx.get("input_format_key", "zip_folder"),
+                    metadata_path=ctx.get("metadata_path", ""),
+                    record_path=ctx.get("record_path", ""),
+                    field_overrides=ctx.get("audio_field_overrides", {}) or {},
+                ),
             )
-            self._thread = threading.Thread(target=worker.run, daemon=True)
-            self._thread.start()
             self._clear_context_fields()
             self._csv_path = None
             self._file_lbl.configure(text="No file selected", text_color=TXT_MUTED)
+            self._set_controls(False)
             return
 
         if modality == "Text":
             ctx = self._get_context_fields()
-            from src.text.config import _TXT_TASK_BACKEND, default_metric_for_task as text_default_metric_for_task
+            from src.text.config import (
+                resolve_text_task,
+                SUPPORTED_TASK_TYPES as _TXT_SUPPORTED,
+                default_metric_for_task as text_default_metric_for_task,
+            )
             raw_task = ctx.get("task_type", "")
-            backend_task = _TXT_TASK_BACKEND.get(raw_task, "")
+            label_mode = ctx.get("label_mode", "")
+            backend_task = resolve_text_task(raw_task, label_mode)
             text_metric = ctx.get("metric", "") or text_default_metric_for_task(backend_task)
-            if not backend_task:
-                self._clog("Please select a supported text task type.", "ERROR")
+            if not backend_task or backend_task not in _TXT_SUPPORTED:
+                self._clog(
+                    f"Text task type '{raw_task}' is not supported or has been deprecated. "
+                    "Please select a supported text task type.",
+                    "ERROR",
+                )
                 self._switch_view("console")
                 return
             self._cleaned_path = None
@@ -375,34 +404,37 @@ class App(
             self._results_frame.pack_forget()
             self._step_lbl.configure(text="")
             self._set_status("Running", WARN)
-            worker = TextAgentWorker(
-                self._q, self._csv_path, text_metric,
-                task_type=backend_task,
-                domain=ctx.get("domain", ""),
-                constraints=ctx.get("constraints", ""),
-                notes=ctx.get("notes", ""),
-                language=ctx.get("language", ""),
-                text_source=ctx.get("text_source", ""),
-                text_length=ctx.get("text_length", ""),
-                col_overrides=ctx.get("col_overrides") or {},
-                auxiliary_feature_columns=ctx.get("auxiliary_feature_columns") or [],
-                multilabel_format=ctx.get("multilabel_format", "single_column"),
-                binary_label_columns=ctx.get("binary_label_columns") or [],
-                input_format=ctx.get("input_format", ""),
-                input_format_key=ctx.get("input_format_key", "csv_excel"),
-                record_path=ctx.get("record_path", ""),
-                metadata_path=ctx.get("metadata_path", ""),
+            self._start_worker(
+                "Text",
+                (self._csv_path, text_metric),
+                dict(
+                    task_type=backend_task,
+                    label_mode=label_mode,
+                    domain=ctx.get("domain", ""),
+                    constraints=ctx.get("constraints", ""),
+                    notes=ctx.get("notes", ""),
+                    language=ctx.get("language", ""),
+                    text_source=ctx.get("text_source", ""),
+                    text_length=ctx.get("text_length", ""),
+                    col_overrides=ctx.get("col_overrides") or {},
+                    auxiliary_feature_columns=ctx.get("auxiliary_feature_columns") or [],
+                    multilabel_format=ctx.get("multilabel_format", "single_column"),
+                    binary_label_columns=ctx.get("binary_label_columns") or [],
+                    input_format=ctx.get("input_format", ""),
+                    input_format_key=ctx.get("input_format_key", "csv_excel"),
+                    record_path=ctx.get("record_path", ""),
+                    metadata_path=ctx.get("metadata_path", ""),
+                ),
             )
-            self._thread = threading.Thread(target=worker.run, daemon=True)
-            self._thread.start()
             self._clear_context_fields()
             self._csv_path = None
             self._file_lbl.configure(text="No file selected", text_color=TXT_MUTED)
+            self._set_controls(False)
             return
 
         ctx = self._get_context_fields()
 
-        if self._csv_target_frame.winfo_ismapped():
+        if self._csv_target_row.winfo_ismapped():
             target = self._target.get().strip()
             if not target:
                 self._clog("Please enter the target column name.", "ERROR")
@@ -419,27 +451,30 @@ class App(
         self._step_lbl.configure(text="")
         self._set_status("Running", WARN)
 
-        worker = AgentWorker(
-            self._q, self._csv_path, target, metric,
-            task_type=ctx.get("task_type", ""),
-            domain=ctx.get("domain", ""),
-            constraints=ctx.get("constraints", ""),
-            notes=ctx.get("notes", ""),
-            modality=ctx.get("modality", "Tabular"),
-            input_format=ctx.get("input_format", ""),
-            input_format_key=ctx.get("input_format_key", ""),
-            record_path=ctx.get("record_path", ""),
-            fe_budget=ctx.get("fe_budget", ""),
-            data_quality=ctx.get("data_quality", ""),
+        self._start_worker(
+            "Tabular",
+            (self._csv_path, target, metric),
+            dict(
+                task_type=ctx.get("task_type", ""),
+                domain=ctx.get("domain", ""),
+                constraints=ctx.get("constraints", ""),
+                notes=ctx.get("notes", ""),
+                modality=ctx.get("modality", "Tabular"),
+                input_format=ctx.get("input_format", ""),
+                input_format_key=ctx.get("input_format_key", ""),
+                record_path=ctx.get("record_path", ""),
+                fe_budget=ctx.get("fe_budget", ""),
+                data_quality=ctx.get("data_quality", ""),
+            ),
         )
-        self._thread = threading.Thread(target=worker.run, daemon=True)
-        self._thread.start()
 
         self._clear_context_fields()
         self._csv_path = None
         self._file_lbl.configure(text="No file selected", text_color=TXT_MUTED)
+        self._set_controls(False)
 
     def _on_done(self, msg: dict) -> None:
+        self._set_controls(True)
         self._cleaned_path = msg["cleaned_path"]
         self._report_data  = msg["report"]
         self._set_status("Done", SUCCESS)
@@ -456,6 +491,7 @@ class App(
         self._refresh_history()
 
     def _on_fail(self, text: str) -> None:
+        self._set_controls(True)
         self._set_status("Error", ERROR)
         short = text[:80] + "..." if len(text) > 80 else text
         self._step_lbl.configure(text=f"Failed: {short}")
@@ -533,20 +569,33 @@ class App(
         self._modality_menu.configure(state=state)
         if hasattr(self, "_input_format_menu"):
             self._input_format_menu.configure(state=state)
-        if self._modality_var.get() == "Tabular":
-            self._csv_task_menu.configure(state=state)
-            self._target.configure(state=state)
-            self._metric_menu.configure(state=state)
         for menu in self._modality_menus:
             menu.configure(state=state)
         for cb in self._modality_checks:
             cb.configure(state=state)
         self._notes.configure(state=state)
 
+        for entry in getattr(self, "_txt_col_entries", {}).values():
+            try:
+                entry.configure(state=state)
+            except Exception:
+                pass
+        for attr in ("_txt_binary_entry", "_txt_aux_entry", "_record_path_entry", "_target"):
+            widget = getattr(self, attr, None)
+            if widget is not None:
+                try:
+                    widget.configure(state=state)
+                except Exception:
+                    pass
+
+        if enabled:
+            self._apply_input_format_state()
+
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 
 def main() -> None:
+    multiprocessing.freeze_support()
     app = App()
     app.mainloop()
 

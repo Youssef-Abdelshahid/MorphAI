@@ -72,8 +72,8 @@ def generate_pipelines(
 
     prefer_simple    = "prefer_simple" in constraints
 
-    supervision_off = task_type in ("clustering", "anomaly", "dimensionality_reduction", "association_rules")
-    regression_like = task_type in ("regression", "ordinal", "ranking", "time_series")
+    supervision_off = task_type in ("clustering", "anomaly", "association_rules")
+    regression_like = task_type in ("regression", "time_series")
 
     prefer_robust     = profile.has_outliers
     use_power         = profile.has_high_skew

@@ -9,15 +9,7 @@ MULTICLASS_CLASSIFICATION_METRICS = [
     "macro_precision",
     "macro_recall",
 ]
-MULTILABEL_CLASSIFICATION_METRICS = [
-    "micro_f1",
-    "macro_f1",
-    "hamming_loss",
-    "subset_accuracy",
-]
 REGRESSION_METRICS = ["mae", "rmse", "r2"]
-ORDINAL_REGRESSION_METRICS = ["quadratic_weighted_kappa", "mae", "accuracy"]
-RANKING_METRICS = ["ndcg", "spearman", "kendall_tau"]
 TIME_SERIES_METRICS = ["mae", "rmse", "smape", "mape"]
 CLUSTERING_METRICS = ["silhouette_score", "davies_bouldin_score", "calinski_harabasz_score"]
 ANOMALY_METRICS = [
@@ -30,68 +22,63 @@ ANOMALY_METRICS = [
     "stability",
     "contamination_consistency",
 ]
-DIMENSIONALITY_REDUCTION_METRICS = [
-    "downstream_score",
-    "explained_variance_ratio",
-    "trustworthiness",
-    "reconstruction_error",
-]
 ASSOCIATION_RULE_METRICS = ["rule_quality", "support", "confidence", "lift", "coverage", "number_of_rules"]
 
 VALID_TASK_TYPES = [
     "binary",
     "multiclass",
-    "multilabel",
     "regression",
-    "ordinal",
-    "ranking",
     "time_series",
     "clustering",
     "anomaly",
-    "dimensionality_reduction",
     "association_rules",
 ]
 SUPPORTED_TASK_TYPES = list(VALID_TASK_TYPES)
 
+DEPRECATED_TASK_TYPES = {
+    "multilabel",
+    "ordinal",
+    "ranking",
+    "dimensionality_reduction",
+}
+
+TASK_DISPLAY_NAMES = {
+    "binary": "Binary classification",
+    "multiclass": "Multiclass classification",
+    "regression": "Regression",
+    "time_series": "Time-series forecasting",
+    "clustering": "Clustering",
+    "anomaly": "Anomaly / outlier detection",
+    "association_rules": "Association rule mining",
+}
+
 _TASK_FAMILIES = {
     "binary": "classification",
     "multiclass": "classification",
-    "multilabel": "classification",
     "regression": "regression",
-    "ordinal": "ordinal",
-    "ranking": "ranking",
     "time_series": "time_series",
     "clustering": "clustering",
     "anomaly": "anomaly",
-    "dimensionality_reduction": "dimensionality_reduction",
     "association_rules": "association_rules",
 }
 
 _TASK_METRICS = {
     "binary": BINARY_CLASSIFICATION_METRICS,
     "multiclass": MULTICLASS_CLASSIFICATION_METRICS,
-    "multilabel": MULTILABEL_CLASSIFICATION_METRICS,
     "regression": REGRESSION_METRICS,
-    "ordinal": ORDINAL_REGRESSION_METRICS,
-    "ranking": RANKING_METRICS,
     "time_series": TIME_SERIES_METRICS,
     "clustering": CLUSTERING_METRICS,
     "anomaly": ANOMALY_METRICS,
-    "dimensionality_reduction": DIMENSIONALITY_REDUCTION_METRICS,
     "association_rules": ASSOCIATION_RULE_METRICS,
 }
 
 _DEFAULT_METRICS = {
     "binary": "f1",
     "multiclass": "macro_f1",
-    "multilabel": "micro_f1",
     "regression": "r2",
-    "ordinal": "quadratic_weighted_kappa",
-    "ranking": "ndcg",
     "time_series": "rmse",
     "clustering": "silhouette_score",
     "anomaly": "proxy_score",
-    "dimensionality_reduction": "explained_variance_ratio",
     "association_rules": "rule_quality",
 }
 
@@ -105,16 +92,9 @@ _METRIC_LABELS = {
     "weighted_f1": "Weighted F1",
     "macro_precision": "Macro Precision",
     "macro_recall": "Macro Recall",
-    "micro_f1": "Micro F1",
-    "hamming_loss": "Hamming loss",
-    "subset_accuracy": "Subset accuracy",
     "mae": "MAE",
     "rmse": "RMSE",
     "r2": "R2",
-    "quadratic_weighted_kappa": "Quadratic weighted kappa",
-    "ndcg": "NDCG",
-    "spearman": "Spearman correlation",
-    "kendall_tau": "Kendall tau",
     "smape": "SMAPE",
     "mape": "MAPE",
     "silhouette_score": "Silhouette score",
@@ -124,10 +104,6 @@ _METRIC_LABELS = {
     "score_separation": "Score separation",
     "stability": "Stability",
     "contamination_consistency": "Contamination consistency",
-    "downstream_score": "Downstream score",
-    "explained_variance_ratio": "Explained variance ratio",
-    "trustworthiness": "Trustworthiness",
-    "reconstruction_error": "Reconstruction error",
     "rule_quality": "Rule quality",
     "support": "Support",
     "confidence": "Confidence",
@@ -174,6 +150,14 @@ def metric_label(metric: str) -> str:
     return _METRIC_LABELS.get(metric, metric.replace("_", " ").title())
 
 
+def is_deprecated_task(task_type: str) -> bool:
+    return normalize_task_type(task_type) in DEPRECATED_TASK_TYPES
+
+
+def task_display_name(task_type: str, label_mode: str = "") -> str:
+    return TASK_DISPLAY_NAMES.get(normalize_task_type(task_type), task_type or "")
+
+
 @dataclass
 class Config:
     data_path: Path
@@ -195,7 +179,6 @@ class Config:
         return "unsupervised" if self.task_family in {
             "clustering",
             "anomaly",
-            "dimensionality_reduction",
             "association_rules",
         } else "supervised"
 
@@ -222,6 +205,7 @@ class Config:
         return {
             "task_type": task_type,
             "task_family": task_family(task_type),
+            "task_name": task_display_name(task_type),
             "domain": self.domain,
             "constraints": self.constraints,
             "active_constraints": self.active_constraints,

@@ -1,6 +1,7 @@
 import pandas as pd
 
 from .config import (
+    DEPRECATED_TASK_TYPES,
     SUPPORTED_TASK_TYPES,
     VALID_TASK_TYPES,
     default_metric_for_task,
@@ -8,7 +9,7 @@ from .config import (
     valid_metrics_for_task,
 )
 
-_SUPERVISED_TASK_TYPES = {"binary", "multiclass", "multilabel", "regression", "ordinal", "ranking", "time_series"}
+_SUPERVISED_TASK_TYPES = {"binary", "multiclass", "regression", "time_series"}
 _NUMERIC_TARGET_TASKS = {"regression", "time_series"}
 
 
@@ -58,6 +59,11 @@ def validate_csv_run(config, df: pd.DataFrame) -> list:
 
     if not task_type:
         errors.append("A tabular task type is required.")
+    elif task_type in DEPRECATED_TASK_TYPES:
+        errors.append(
+            f"Task type '{task_type}' has been deprecated and is no longer supported. "
+            f"Supported task types: {SUPPORTED_TASK_TYPES}"
+        )
     elif task_type not in VALID_TASK_TYPES:
         errors.append(
             f"Task type '{config.task_type}' is not valid for tabular data. "
@@ -125,7 +131,7 @@ def validate_csv_run(config, df: pd.DataFrame) -> list:
     if task_type == "time_series":
         if len(df) < 20:
             errors.append("Time-series forecasting needs at least 20 rows for time-aware evaluation.")
-    elif task_type in {"clustering", "anomaly", "dimensionality_reduction", "association_rules"} and len(feature_cols) < 1:
+    elif task_type in {"clustering", "anomaly", "association_rules"} and len(feature_cols) < 1:
         errors.append(f"{task_type} requires at least one feature column.")
 
     return errors

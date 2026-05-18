@@ -454,6 +454,7 @@ class ImageAgentWorker:
         zip_path: Path,
         metric: str,
         task_type:    str = "classification",
+        label_mode:   str = "",
         domain:       str = "",
         constraints:  str = "",
         notes:        str = "",
@@ -472,6 +473,7 @@ class ImageAgentWorker:
         self.zip_path     = zip_path
         self.metric       = metric
         self.task_type    = task_type
+        self.label_mode   = label_mode
         self.domain       = domain
         self.constraints  = constraints
         self.notes        = notes
@@ -504,6 +506,7 @@ class ImageAgentWorker:
             data_path=zip_path,
             metric=metric,
             task_type=self.task_type,
+            label_mode=self.label_mode,
             domain=self.domain,
             constraints=self.constraints,
             notes=self.notes,

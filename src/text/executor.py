@@ -62,10 +62,6 @@ def _norm_metric(metric: str, value: float) -> float:
         return _clamp_01(1.0 - min(max(float(value), 0.0), 1.0))
     if metric in {"spearman", "pearson", "silhouette", "ari"}:
         return _clamp_01((float(value) + 1.0) / 2.0)
-    if metric == "inverse_perplexity":
-        return _clamp_01(value)
-    if metric == "bleu" and value > 1.0:
-        return _clamp_01(value / 100.0)
     return _clamp_01(value)
 
 
@@ -423,62 +419,6 @@ def _evaluate_ner(spec, df, profile, task_type, metric_priority):
     return raw, {}, {"entity_lexicon_baseline": raw}, selected, {"model_family": "rule/token baseline fallback", "models": ["entity_lexicon_baseline"], "baselines": ["entity_surface_lexicon"], "fusion_used": False}, "proxy", summary, 1
 
 
-def _evaluate_pos(spec, df, profile, task_type, metric_priority):
-    cols = profile.resolved_columns
-    token_col = cols.get("tokens") or cols.get("text")
-    tokens = [_parse_list(v) for v in df[token_col]]
-    tags = [_parse_list(v) for v in df[cols["pos_tags"]]]
-    valid = [(t, y) for t, y in zip(tokens, tags) if t and y and len(t) == len(y)]
-    if len(valid) < 2:
-        raise ValueError("POS tagging requires aligned token and tag sequences.")
-    idx = np.arange(len(valid))
-    train_idx, test_idx = _split(idx, np.asarray([len(v[0]) for v in valid]))
-    counts = defaultdict(Counter)
-    global_counts: Counter = Counter()
-    for i in train_idx:
-        for tok, tag in zip(valid[i][0], valid[i][1]):
-            counts[str(tok).lower()][tag] += 1
-            global_counts[tag] += 1
-    default = global_counts.most_common(1)[0][0]
-    y_true, y_pred = [], []
-    for i in test_idx:
-        for tok, tag in zip(valid[i][0], valid[i][1]):
-            y_true.append(tag)
-            y_pred.append(counts[str(tok).lower()].most_common(1)[0][0] if counts[str(tok).lower()] else default)
-    raw = {
-        "token_accuracy": accuracy_score(y_true, y_pred),
-        "macro_f1": f1_score(y_true, y_pred, average="macro", zero_division=0),
-        "weighted_f1": f1_score(y_true, y_pred, average="weighted", zero_division=0),
-    }
-    selected, note = _resolve_metric(task_type, metric_priority, raw.keys(), "token_accuracy")
-    summary = "Explicit fallback POS evaluation used a majority tag dictionary baseline with token/tag alignment preserved."
-    if note:
-        summary += " " + note
-    return raw, {}, {"majority_tag_dictionary": raw}, selected, {"model_family": "tag dictionary fallback", "models": ["majority_tag_dictionary"], "baselines": ["token_majority_tag"], "fusion_used": False}, "proxy", summary, 1
-
-
-def _evaluate_relation(spec, df, profile, task_type, metric_priority):
-    cols = profile.resolved_columns
-    work = df.copy()
-    text = work[cols["text"]].fillna("").astype(str) + " [E1] " + work[cols["entity1"]].fillna("").astype(str) + " [E2] " + work[cols["entity2"]].fillna("").astype(str)
-    work["_ctx"] = text
-    raw, std, per_model, n_classes, n_models, fused = _evaluate_single_label(
-        spec, work, profile, task_type, metric_priority, "_ctx", cols["relation"],
-        [
-            ("tfidf_entity_context_logistic_regression", LogisticRegression(max_iter=1000, class_weight="balanced" if spec.imbalance == "class_weight" else None)),
-            ("tfidf_entity_context_linear_svc", LinearSVC(class_weight="balanced" if spec.imbalance == "class_weight" else None)),
-        ],
-        allow_fusion=True,
-    )
-    raw["micro_f1"] = raw.get("accuracy", 0.0)
-    selected, note = _resolve_metric(task_type, metric_priority, raw.keys(), "macro_f1")
-    summary = "Relation extraction used TF-IDF entity-context features with linear classifiers."
-    if fused:
-        summary += " Fused with auxiliary tabular features."
-    if note:
-        summary += " " + note
-    family = "entity-context tfidf + tabular fusion classifier" if fused else "entity-context tfidf + linear classifier"
-    return raw, std, per_model, selected, {"model_family": family, "models": list(per_model.keys()), "fusion_used": fused}, "supervised", summary, n_models
 
 
 def _cosine_scores(texts_a: List[str], texts_b: List[str], spec: TextPipelineSpec) -> np.ndarray:
@@ -532,18 +472,6 @@ def _rouge_scores(pred: str, ref: str) -> Dict[str, float]:
     return {"rouge1": f1_n(1), "rouge2": f1_n(2), "rouge_l": 2 * prec_l * rec_l / max(prec_l + rec_l, 1e-12)}
 
 
-def _simple_bleu(pred: str, ref: str) -> float:
-    pt = pred.lower().split()
-    rt = ref.lower().split()
-    if not pt or not rt:
-        return 0.0
-    precisions = []
-    for n in range(1, 5):
-        p = _ngrams(pt, n)
-        r = _ngrams(rt, n)
-        precisions.append((sum((p & r).values()) + 1) / (sum(p.values()) + 1))
-    bp = 1.0 if len(pt) > len(rt) else math.exp(1 - len(rt) / max(len(pt), 1))
-    return float(bp * math.exp(np.mean(np.log(precisions))))
 
 
 def _evaluate_summarization(spec, df, profile, task_type, metric_priority):
@@ -602,21 +530,6 @@ def _evaluate_qa(spec, df, profile, task_type, metric_priority):
     return raw, {}, {"lexical_overlap_span_baseline": raw}, selected, {"model_family": "extractive QA fallback", "models": ["lexical_overlap_span_baseline"], "baselines": ["lexical_overlap_sentence"], "fusion_used": False}, "proxy", summary, 1
 
 
-def _evaluate_generation(spec, df, profile, task_type, metric_priority):
-    cols = profile.resolved_columns
-    bleu, rouge_l, exact = [], [], []
-    for prompt, ref in zip(df[cols["prompt"]].fillna("").astype(str), df[cols["completion"]].fillna("").astype(str)):
-        tokens = clean_text_value(prompt, spec, preserve_alignment=True).split()
-        pred = " ".join(tokens[-min(len(tokens), 30):])
-        bleu.append(_simple_bleu(pred, ref))
-        rouge_l.append(_rouge_scores(pred, ref)["rouge_l"])
-        exact.append(float(pred.strip().lower() == ref.strip().lower()))
-    raw = {"rouge_l": _safe_mean(rouge_l), "bleu": _safe_mean(bleu), "inverse_perplexity": 0.0}
-    selected, note = _resolve_metric(task_type, metric_priority, raw.keys(), "rouge_l")
-    summary = "Text generation used an explicit prompt-tail copy baseline against reference completions."
-    if note:
-        summary += " " + note
-    return raw, {}, {"prompt_tail_copy_baseline": raw}, selected, {"model_family": "generation fallback baseline", "models": ["prompt_tail_copy_baseline"], "baselines": ["prompt_tail_copy", "ngram_overlap"], "fusion_used": False}, "proxy", summary, 1
 
 
 def _evaluate_topic_modeling(spec, df, profile, task_type, metric_priority):
@@ -660,18 +573,12 @@ def evaluate_pipeline(spec: TextPipelineSpec, df: pd.DataFrame, profile: TextPro
             raw, std, model_scores, selected, details, mode, summary, n_models = _evaluate_multilabel(spec, df, profile, task, metric_priority)
         elif task == "ner":
             raw, std, model_scores, selected, details, mode, summary, n_models = _evaluate_ner(spec, df, profile, task, metric_priority)
-        elif task == "pos":
-            raw, std, model_scores, selected, details, mode, summary, n_models = _evaluate_pos(spec, df, profile, task, metric_priority)
-        elif task == "relation_extraction":
-            raw, std, model_scores, selected, details, mode, summary, n_models = _evaluate_relation(spec, df, profile, task, metric_priority)
         elif task == "semantic_similarity":
             raw, std, model_scores, selected, details, mode, summary, n_models = _evaluate_similarity(spec, df, profile, task, metric_priority)
         elif task == "summarization":
             raw, std, model_scores, selected, details, mode, summary, n_models = _evaluate_summarization(spec, df, profile, task, metric_priority)
         elif task == "question_answering":
             raw, std, model_scores, selected, details, mode, summary, n_models = _evaluate_qa(spec, df, profile, task, metric_priority)
-        elif task == "text_generation":
-            raw, std, model_scores, selected, details, mode, summary, n_models = _evaluate_generation(spec, df, profile, task, metric_priority)
         elif task == "topic_modeling":
             raw, std, model_scores, selected, details, mode, summary, n_models = _evaluate_topic_modeling(spec, df, profile, task, metric_priority)
         else:

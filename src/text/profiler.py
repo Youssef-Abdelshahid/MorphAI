@@ -194,12 +194,6 @@ def annotation_validity_summary(df: pd.DataFrame, task_type: str, cols: Dict[str
             ok = bool(answer.strip()) and answer.lower() in context.lower()
             valid += int(ok)
             invalid += int(not ok)
-    elif task == "relation_extraction":
-        needed = [cols.get("text"), cols.get("entity1"), cols.get("entity2"), cols.get("relation")]
-        for _, row in df.iterrows():
-            ok = all(str(row.get(col, "")).strip() for col in needed if col)
-            valid += int(ok)
-            invalid += int(not ok)
     return {"valid_count": valid, "invalid_count": invalid, "valid_ratio": valid / max(valid + invalid, 1), **details}
 
 
@@ -416,7 +410,6 @@ def compute_emoji_stats(values, strategy: str) -> Dict[str, int]:
 _ENGLISH_CHECK_KEYS = {
     "summarization": ["source_text", "summary"],
     "question_answering": ["context", "question", "answer"],
-    "text_generation": ["prompt", "completion"],
     "semantic_similarity": ["text_a", "text_b", "query", "document"],
 }
 

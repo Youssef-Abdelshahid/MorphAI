@@ -13,7 +13,7 @@ MIN_RUNS_TO_USE = 5
 MIN_RUNS_FULL_WEIGHT = 20
 MAX_META_WEIGHT = 0.25
 
-_TASKS = ["classification_single", "classification_multi", "ner", "pos", "relation_extraction", "semantic_similarity", "summarization", "question_answering", "text_generation", "topic_modeling", "other"]
+_TASKS = ["classification_single", "classification_multi", "ner", "semantic_similarity", "summarization", "question_answering", "topic_modeling", "other"]
 _TASK_MAP = {name: i for i, name in enumerate(_TASKS)}
 _INPUT_FORMATS = ["csv_excel", "json_text_records", "txt_zip", "other"]
 _INPUT_FORMAT_MAP = {name: i for i, name in enumerate(_INPUT_FORMATS)}

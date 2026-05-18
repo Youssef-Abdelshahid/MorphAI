@@ -19,7 +19,6 @@ _TASK_TOKENS = {
     "classification": "classification",
     "asr": "asr",
     "speaker_recognition": "speaker_recognition",
-    "speaker_diarization": "speaker_diarization",
     "sound_event_detection": "sed",
     "vad": "vad",
     "anomaly": "anomaly",

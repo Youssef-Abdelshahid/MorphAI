@@ -3,8 +3,9 @@ from __future__ import annotations
 import customtkinter as ctk
 from src.tabular.config import default_metric_for_task, metric_label, valid_metrics_for_task
 from src.image.config import (
-    _IMG_TASK_BACKEND as _IMG_TASK_BACKEND_CFG,
     default_metric_for_task as image_default_metric_for_task,
+    metric_label as image_metric_label,
+    resolve_image_task,
     valid_metrics_for_task as image_valid_metrics_for_task,
 )
 from src.audio.config import (
@@ -14,9 +15,9 @@ from src.audio.config import (
     valid_metrics_for_task as audio_valid_metrics_for_task,
 )
 from src.text.config import (
-    _TXT_TASK_BACKEND as _TXT_TASK_BACKEND_CFG,
     default_metric_for_task as text_default_metric_for_task,
     metric_label as text_metric_label,
+    resolve_text_task,
     valid_metrics_for_task as text_valid_metrics_for_task,
 )
 from src.utils.ingestion import get_input_formats, get_input_format
@@ -53,16 +54,12 @@ def _default_input_format_label(modality: str) -> str:
 _CSV_SUPERVISED_TASKS = [
     "Binary classification",
     "Multiclass classification",
-    "Multi-label classification",
     "Regression",
-    "Ordinal regression",
-    "Ranking / learning-to-rank",
     "Time-series forecasting",
 ]
 _CSV_UNSUPERVISED_TASKS = [
     "Clustering",
     "Anomaly / outlier detection",
-    "Dimensionality reduction",
     "Association rule mining",
 ]
 _CSV_TASK_OPTS = _CSV_SUPERVISED_TASKS + _CSV_UNSUPERVISED_TASKS
@@ -71,14 +68,10 @@ _CSV_SUPERVISED_SET = set(_CSV_SUPERVISED_TASKS)
 _CSV_TASK_BACKEND = {
     "Binary classification":       "binary",
     "Multiclass classification":   "multiclass",
-    "Multi-label classification":  "multilabel",
     "Regression":                  "regression",
-    "Ordinal regression":          "ordinal",
-    "Ranking / learning-to-rank":  "ranking",
     "Time-series forecasting":     "time_series",
     "Clustering":                  "clustering",
     "Anomaly / outlier detection": "anomaly",
-    "Dimensionality reduction":    "dimensionality_reduction",
     "Association rule mining":     "association_rules",
 }
 
@@ -119,20 +112,15 @@ _CSV_DATA_QUALITY_OPTS = [
 
 
 _IMG_TASK_OPTS = [
-    "Image classification (single-label)",
-    "Image classification (multi-label)",
+    "Image classification",
     "Object detection",
     "Semantic segmentation",
-    "Instance segmentation",
-    "Keypoint / pose estimation",
     "Image similarity / retrieval",
     "Anomaly / defect detection",
     "Optical character recognition",
-    "Image generation / synthesis",
-    "Depth estimation",
 ]
 
-_IMG_TASK_BACKEND = dict(_IMG_TASK_BACKEND_CFG)
+_IMG_CLASSIFICATION_TASK = "Image classification"
 
 _IMG_FORMAT_OPTS = [
     _SENTINEL,
@@ -177,7 +165,6 @@ _AUD_TASK_OPTS = [
     "Audio classification",
     "Speech recognition (ASR)",
     "Speaker recognition",
-    "Speaker diarization",
     "Sound event detection",
     "Voice activity detection",
     "Audio anomaly detection",
@@ -227,19 +214,16 @@ _AUD_DOMAIN_OPTS = [
 ]
 
 _TXT_TASK_OPTS = [
-    "Text classification (single-label)",
-    "Text classification (multi-label)",
+    "Text classification",
     "Named entity recognition",
-    "Part-of-speech tagging",
-    "Relation extraction",
     "Semantic similarity / search",
     "Text summarization",
     "Question answering",
-    "Text generation",
     "Topic modeling",
 ]
 
-_TXT_TASK_BACKEND = {k: v for k, v in _TXT_TASK_BACKEND_CFG.items() if k in set(_TXT_TASK_OPTS)}
+_TXT_CLASSIFICATION_TASK = "Text classification"
+_LABEL_MODE_OPTS = ["single-label", "multi-label"]
 
 _TXT_REQUIRED_COL_FIELDS = {
     "classification_single": [
@@ -252,15 +236,6 @@ _TXT_REQUIRED_COL_FIELDS = {
     "ner": [
         ("text", "Text column", "Enter text column name"),
         ("entities", "Entities column (BIO tags or span JSON)", "Enter entities column name"),
-    ],
-    "pos": [
-        ("pos_tags", "POS tags column", "Enter POS tags column name"),
-    ],
-    "relation_extraction": [
-        ("text", "Text column", "Enter text column name"),
-        ("entity1", "Entity 1 column", "Enter entity 1 column name"),
-        ("entity2", "Entity 2 column", "Enter entity 2 column name"),
-        ("relation", "Relation label column", "Enter relation label column name"),
     ],
     "semantic_similarity": [
         ("text_a", "Text A column", "Enter text A column name"),
@@ -276,19 +251,12 @@ _TXT_REQUIRED_COL_FIELDS = {
         ("question", "Question column", "Enter question column name"),
         ("answer", "Answer column", "Enter answer column name"),
     ],
-    "text_generation": [
-        ("prompt", "Prompt column", "Enter prompt column name"),
-        ("completion", "Completion / reference column", "Enter completion column name"),
-    ],
     "topic_modeling": [
         ("text", "Text column", "Enter text column name"),
     ],
 }
 
 _TXT_OPTIONAL_COL_FIELDS = {
-    "pos": [
-        ("text", "Text column (or tokens column)", "Enter tokens or text column name"),
-    ],
     "question_answering": [
         ("answer_start", "answer_start column", "Enter answer_start column name (optional)"),
     ],
@@ -296,20 +264,6 @@ _TXT_OPTIONAL_COL_FIELDS = {
         ("label", "External label column (validation only)", "Enter optional label column name"),
     ],
 }
-
-_TXT_LANG_OPTS = [
-    _SENTINEL,
-    "English",
-    "Arabic",
-    "Chinese (Simplified)",
-    "French",
-    "German",
-    "Japanese",
-    "Portuguese",
-    "Russian",
-    "Spanish",
-    "Multilingual",
-]
 
 _TXT_SOURCE_OPTS = [
     _SENTINEL,
@@ -379,7 +333,8 @@ _CONSTRAINTS = {
 }
 
 _RESULTS_CONTEXT_LABELS = {
-    "task_type":          "Task",
+    "task_name":          "Task",
+    "label_mode":         "Label mode",
     "domain":             "Domain",
     "fe_budget":          "FE budget",
     "data_quality":       "Data quality",
@@ -558,55 +513,8 @@ class RunViewMixin:
         )
         self._browse_btn.pack(side="right")
 
-        self._csv_task_frame = ctk.CTkFrame(cfg_card, fg_color="transparent")
-        self._csv_task_frame.pack(fill="x")
-
-        r_task = ctk.CTkFrame(self._csv_task_frame, fg_color="transparent")
-        r_task.pack(fill="x", padx=14, pady=(4, 6))
-        _req_label(r_task, "Task type")
-        self._csv_task_var = ctk.StringVar(value="Binary classification")
-        self._csv_task_menu = ctk.CTkOptionMenu(
-            r_task, values=_CSV_TASK_OPTS,
-            variable=self._csv_task_var,
-            fg_color=BG_INPUT, button_color=ACCENT, button_hover_color=ACCENT_H,
-            dropdown_fg_color=BG_BAR, text_color=TXT,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=13), height=30, width=260,
-            dynamic_resizing=False,
-            command=self._on_csv_task_change,
-        )
-        self._csv_task_menu.pack(side="left", padx=(6, 0))
-
-        self._csv_target_frame = ctk.CTkFrame(cfg_card, fg_color="transparent")
-        self._csv_target_frame.pack(fill="x")
-
-        r2 = ctk.CTkFrame(self._csv_target_frame, fg_color="transparent")
-        r2.pack(fill="x", padx=14, pady=6)
-        _req_label(r2, "Target column")
-        self._target = ctk.CTkEntry(
-            r2, placeholder_text="e.g.  label  /  class  /  target",
-            fg_color=BG_INPUT, border_color=BORDER,
-            text_color=TXT, placeholder_text_color=TXT_MUTED,
-            corner_radius=8, font=ctk.CTkFont(family=FONT_FAMILY, size=13), height=30,
-        )
-        self._target.pack(side="left", fill="x", expand=True, padx=(6, 0))
-
-        self._csv_metric_frame = ctk.CTkFrame(cfg_card, fg_color="transparent")
-        self._csv_metric_frame.pack(fill="x", pady=(0, 12))
-
-        r3 = ctk.CTkFrame(self._csv_metric_frame, fg_color="transparent")
-        r3.pack(fill="x", padx=14, pady=(6, 14))
-        _opt_label(r3, "Priority metric")
-        self._metric_var = ctk.StringVar(value=default_metric_for_task(_CSV_TASK_BACKEND.get(self._csv_task_var.get(), "")))
-        self._metric_menu = ctk.CTkOptionMenu(
-            r3, values=valid_metrics_for_task(_CSV_TASK_BACKEND.get(self._csv_task_var.get(), "")),
-            variable=self._metric_var,
-            fg_color=BG_INPUT, button_color=ACCENT, button_hover_color=ACCENT_H,
-            dropdown_fg_color=BG_BAR, text_color=TXT,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=13), height=30, width=140,
-        )
-        self._metric_menu.pack(side="left", padx=(6, 0))
-
-        self._noncsv_spacer = ctk.CTkFrame(cfg_card, height=14, fg_color="transparent")
+        self._cfg_bottom_spacer = ctk.CTkFrame(cfg_card, height=12, fg_color="transparent")
+        self._cfg_bottom_spacer.pack(fill="x")
 
         self._modality_section = ctk.CTkFrame(scroll, fg_color="transparent")
         self._modality_section.pack(fill="x")
@@ -638,23 +546,11 @@ class RunViewMixin:
 
     def _on_modality_change(self, modality: str) -> None:
         self._build_modality_section(modality)
-        self._noncsv_spacer.pack_forget()
-        self._csv_task_frame.pack_forget()
-        self._csv_target_frame.pack_forget()
-        self._csv_metric_frame.pack_forget()
 
         labels = _input_format_labels(modality)
         self._input_format_menu.configure(values=labels or [""])
         self._input_format_var.set(_default_input_format_label(modality))
         self._apply_input_format_state()
-
-        if modality == "Tabular":
-            self._csv_task_frame.pack(fill="x")
-            self._csv_metric_frame.pack(fill="x", pady=(0, 12))
-            if self._csv_task_var.get() in _CSV_SUPERVISED_SET:
-                self._csv_target_frame.pack(fill="x")
-        else:
-            self._noncsv_spacer.pack(fill="x", pady=(0, 12))
 
     def _on_input_format_change(self, _label: str) -> None:
         self._apply_input_format_state()
@@ -790,7 +686,7 @@ class RunViewMixin:
                 help_widget.configure(text=help_text)
             if rp_frame is not None:
                 if show_rp:
-                    rp_frame.pack(fill="x", before=self._csv_task_frame)
+                    rp_frame.pack(fill="x", before=self._cfg_bottom_spacer)
                 else:
                     rp_frame.pack_forget()
             rp_label = getattr(self, "_record_path_label", None)
@@ -806,21 +702,6 @@ class RunViewMixin:
                 if rp_entry is not None:
                     rp_entry.configure(placeholder_text="optional — e.g.  records  |  data.items  |  person")
 
-    def _on_csv_task_change(self, task: str) -> None:
-        self._csv_task_frame.pack_forget()
-        self._csv_target_frame.pack_forget()
-        self._csv_metric_frame.pack_forget()
-        backend_task = _CSV_TASK_BACKEND.get(task, "")
-        metric_values = valid_metrics_for_task(backend_task)
-        if metric_values:
-            self._metric_menu.configure(values=metric_values)
-            self._metric_var.set(default_metric_for_task(backend_task))
-
-        self._csv_task_frame.pack(fill="x")
-        self._csv_metric_frame.pack(fill="x", pady=(0, 12))
-        if task in _CSV_SUPERVISED_SET:
-            self._csv_target_frame.pack(fill="x")
-
     def _build_modality_section(self, modality: str) -> None:
         for widget in self._modality_section.winfo_children():
             widget.destroy()
@@ -829,28 +710,44 @@ class RunViewMixin:
         self._modality_checks       = []
         self._modality_context_vars = {}
         self._constraint_vars       = {}
+        self._txt_col_entries       = {}
+        self._txt_binary_entry      = None
+        self._txt_aux_entry         = None
+        for _stale in ("_target", "_csv_target_row", "_csv_domain_row", "_metric_menu",
+                       "_metric_var", "_csv_task_var", "_image_metric_menu",
+                       "_audio_metric_menu", "_text_metric_menu"):
+            if hasattr(self, _stale):
+                delattr(self, _stale)
 
         _sec_label(self._modality_section, "TASK  &  CONTEXT", padx=20, pady=(16, 6))
         ctx_card = _card(self._modality_section)
         ctx_card.pack(fill="x", padx=20)
 
         if modality == "Text":
-            _hdr_text = ("Task type, priority metric, and task-specific column names are required. "
+            _hdr_text = ("Task type and the task-specific column names are required. "
+                         "Optional fields can be left blank.")
+        elif modality == "Tabular":
+            _hdr_text = ("Task type is required; the target column is required for supervised tasks. "
                          "Optional fields can be left blank.")
         else:
-            _hdr_text = "All fields optional — fill in what you know to guide the agent."
+            _hdr_text = "Task type is required. Optional fields can be left blank."
         ctk.CTkLabel(ctx_card,
                      text=_hdr_text,
                      font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT_MUTED,
                      wraplength=780, justify="left").pack(
             anchor="w", padx=14, pady=(10, 6))
 
-        def _ctx_row(parent, label, var, opts, width=260, command=None):
+        def _ctx_row(parent, label, var, opts, width=260, command=None, required=False):
             row = ctk.CTkFrame(parent, fg_color="transparent")
             row.pack(fill="x", padx=14, pady=4)
-            ctk.CTkLabel(row, text=label,
+            lbl_wrap = ctk.CTkFrame(row, fg_color="transparent")
+            lbl_wrap.pack(side="left")
+            ctk.CTkLabel(lbl_wrap, text=label,
                          font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
                          text_color=TXT_MUTED, width=140, anchor="w").pack(side="left")
+            ctk.CTkLabel(lbl_wrap, text="*" if required else "",
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+                         text_color=ERROR, width=12, anchor="w").pack(side="left")
             menu = ctk.CTkOptionMenu(
                 row, values=opts, variable=var,
                 fg_color=BG_INPUT, button_color=ACCENT, button_hover_color=ACCENT_H,
@@ -861,11 +758,59 @@ class RunViewMixin:
             )
             menu.pack(side="left", padx=(6, 0))
             self._modality_menus.append(menu)
-            return var
+            return row
 
         if modality == "Tabular":
+            def _on_csv_task_change(task: str) -> None:
+                backend_task = _CSV_TASK_BACKEND.get(task, "")
+                values = valid_metrics_for_task(backend_task)
+                metric_menu = getattr(self, "_metric_menu", None)
+                if metric_menu is not None and values:
+                    metric_menu.configure(values=values)
+                    self._metric_var.set(default_metric_for_task(backend_task))
+                target_row = getattr(self, "_csv_target_row", None)
+                domain_row = getattr(self, "_csv_domain_row", None)
+                if target_row is not None:
+                    if task in _CSV_SUPERVISED_SET:
+                        if domain_row is not None:
+                            target_row.pack(fill="x", padx=14, pady=4, before=domain_row)
+                        else:
+                            target_row.pack(fill="x", padx=14, pady=4)
+                    else:
+                        target_row.pack_forget()
+
+            self._csv_task_var = ctk.StringVar(value="Binary classification")
+            _ctx_row(ctx_card, "Task type", self._csv_task_var, _CSV_TASK_OPTS,
+                     width=260, command=_on_csv_task_change, required=True)
+
+            _csv_backend = _CSV_TASK_BACKEND.get(self._csv_task_var.get(), "")
+            self._metric_var = ctk.StringVar(value=default_metric_for_task(_csv_backend))
+            _ctx_row(ctx_card, "Priority metric", self._metric_var,
+                     valid_metrics_for_task(_csv_backend), width=180)
+            self._metric_menu = self._modality_menus[-1]
+
+            target_row = ctk.CTkFrame(ctx_card, fg_color="transparent")
+            target_row.pack(fill="x", padx=14, pady=4)
+            target_lbl_wrap = ctk.CTkFrame(target_row, fg_color="transparent")
+            target_lbl_wrap.pack(side="left")
+            ctk.CTkLabel(target_lbl_wrap, text="Target column",
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+                         text_color=TXT_MUTED, width=140, anchor="w").pack(side="left")
+            ctk.CTkLabel(target_lbl_wrap, text="*",
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+                         text_color=ERROR, width=12, anchor="w").pack(side="left")
+            self._target = ctk.CTkEntry(
+                target_row, placeholder_text="e.g.  label  /  class  /  target",
+                fg_color=BG_INPUT, border_color=BORDER,
+                text_color=TXT, placeholder_text_color=TXT_MUTED,
+                corner_radius=8, font=ctk.CTkFont(family=FONT_FAMILY, size=13), height=30,
+            )
+            self._target.pack(side="left", fill="x", expand=True, padx=(6, 0))
+            self._csv_target_row = target_row
+
             domain_var = ctk.StringVar(value=_SENTINEL)
-            _ctx_row(ctx_card, "Domain / use case", domain_var, _DOMAIN_OPTS, width=240)
+            self._csv_domain_row = _ctx_row(ctx_card, "Domain / use case", domain_var,
+                                            _DOMAIN_OPTS, width=240)
             self._modality_context_vars["domain"] = domain_var
 
             fe_var = ctk.StringVar(value=_SENTINEL)
@@ -876,9 +821,15 @@ class RunViewMixin:
             _ctx_row(ctx_card, "Data quality", quality_var, _CSV_DATA_QUALITY_OPTS, width=240)
             self._modality_context_vars["data_quality"] = quality_var
 
+            if self._csv_task_var.get() not in _CSV_SUPERVISED_SET:
+                target_row.pack_forget()
+
         elif modality == "Image":
-            def _on_image_task_change(task: str) -> None:
-                backend_task = _IMG_TASK_BACKEND.get(task, "classification")
+            task_var = ctk.StringVar(value=_IMG_TASK_OPTS[0])
+            label_mode_var = ctk.StringVar(value=_LABEL_MODE_OPTS[0])
+
+            def _refresh_image_metrics() -> None:
+                backend_task = resolve_image_task(task_var.get(), label_mode_var.get())
                 metric_menu = getattr(self, "_image_metric_menu", None)
                 metric_var = self._modality_context_vars.get("metric")
                 values = image_valid_metrics_for_task(backend_task)
@@ -886,28 +837,50 @@ class RunViewMixin:
                     metric_menu.configure(values=values)
                     metric_var.set(image_default_metric_for_task(backend_task))
 
-            task_var = ctk.StringVar(value=_IMG_TASK_OPTS[0])
-            _ctx_row(ctx_card, "Task type", task_var, _IMG_TASK_OPTS, width=280, command=_on_image_task_change)
+            def _on_image_task_change(task: str) -> None:
+                lm_row = getattr(self, "_img_label_mode_row", None)
+                task_row = getattr(self, "_img_task_row", None)
+                if lm_row is not None:
+                    if task == _IMG_CLASSIFICATION_TASK:
+                        if task_row is not None:
+                            lm_row.pack(fill="x", padx=14, pady=4, after=task_row)
+                        else:
+                            lm_row.pack(fill="x", padx=14, pady=4)
+                    else:
+                        lm_row.pack_forget()
+                _refresh_image_metrics()
+
+            def _on_image_label_mode_change(_v: str) -> None:
+                _refresh_image_metrics()
+
+            self._img_task_row = _ctx_row(ctx_card, "Task type", task_var, _IMG_TASK_OPTS,
+                                          width=280, command=_on_image_task_change, required=True)
             self._modality_context_vars["task_type"] = task_var
 
-            initial_task = _IMG_TASK_BACKEND.get(task_var.get(), "classification")
+            self._img_label_mode_row = _ctx_row(ctx_card, "Label mode", label_mode_var, _LABEL_MODE_OPTS,
+                                                width=180, command=_on_image_label_mode_change, required=True)
+            self._modality_context_vars["label_mode"] = label_mode_var
+            if task_var.get() != _IMG_CLASSIFICATION_TASK:
+                self._img_label_mode_row.pack_forget()
+
+            initial_task = resolve_image_task(task_var.get(), label_mode_var.get())
             metric_values = image_valid_metrics_for_task(initial_task)
             metric_var = ctk.StringVar(value=image_default_metric_for_task(initial_task))
             _ctx_row(ctx_card, "Priority metric", metric_var, metric_values, width=180)
             self._modality_context_vars["metric"] = metric_var
             self._image_metric_menu = self._modality_menus[-1]
 
+            domain_var = ctk.StringVar(value=_SENTINEL)
+            _ctx_row(ctx_card, "Domain / use case", domain_var, _IMG_DOMAIN_OPTS, width=240)
+            self._modality_context_vars["domain"] = domain_var
+
             fmt_var = ctk.StringVar(value=_SENTINEL)
-            _ctx_row(ctx_card, "Input format", fmt_var, _IMG_FORMAT_OPTS, width=200)
+            _ctx_row(ctx_card, "Format", fmt_var, _IMG_FORMAT_OPTS, width=200)
             self._modality_context_vars["image_format"] = fmt_var
 
             color_var = ctk.StringVar(value=_SENTINEL)
             _ctx_row(ctx_card, "Color space", color_var, _IMG_COLOR_OPTS, width=200)
             self._modality_context_vars["color_space"] = color_var
-
-            domain_var = ctk.StringVar(value=_SENTINEL)
-            _ctx_row(ctx_card, "Domain / use case", domain_var, _IMG_DOMAIN_OPTS, width=240)
-            self._modality_context_vars["domain"] = domain_var
 
         elif modality == "Audio":
             def _on_audio_task_change(task: str) -> None:
@@ -920,7 +893,7 @@ class RunViewMixin:
                     metric_var.set(audio_default_metric_for_task(backend_task))
 
             task_var = ctk.StringVar(value=_AUD_TASK_OPTS[0])
-            _ctx_row(ctx_card, "Task type", task_var, _AUD_TASK_OPTS, width=280, command=_on_audio_task_change)
+            _ctx_row(ctx_card, "Task type", task_var, _AUD_TASK_OPTS, width=280, command=_on_audio_task_change, required=True)
             self._modality_context_vars["task_type"] = task_var
 
             initial_task = _AUD_TASK_BACKEND.get(task_var.get(), "classification")
@@ -930,13 +903,17 @@ class RunViewMixin:
             self._modality_context_vars["metric"] = metric_var
             self._audio_metric_menu = self._modality_menus[-1]
 
+            domain_var = ctk.StringVar(value=_SENTINEL)
+            _ctx_row(ctx_card, "Domain / use case", domain_var, _AUD_DOMAIN_OPTS, width=240)
+            self._modality_context_vars["domain"] = domain_var
+
             ctk.CTkLabel(ctx_card,
                          text="Upload a ZIP containing class folders or manifests plus .wav/.mp3/.flac/.ogg files. WAV works by default; other formats require optional decoder support.",
                          font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=TXT_MUTED,
                          wraplength=780, justify="left").pack(anchor="w", padx=154, pady=(0, 6))
 
             fmt_var = ctk.StringVar(value=_SENTINEL)
-            _ctx_row(ctx_card, "Input format", fmt_var, _AUD_FORMAT_OPTS, width=200)
+            _ctx_row(ctx_card, "Format", fmt_var, _AUD_FORMAT_OPTS, width=200)
             self._modality_context_vars["audio_format"] = fmt_var
 
             channel_var = ctk.StringVar(value=_SENTINEL)
@@ -946,10 +923,6 @@ class RunViewMixin:
             sr_var = ctk.StringVar(value=_SENTINEL)
             _ctx_row(ctx_card, "Sample rate", sr_var, _AUD_SR_OPTS, width=240)
             self._modality_context_vars["sample_rate"] = sr_var
-
-            domain_var = ctk.StringVar(value=_SENTINEL)
-            _ctx_row(ctx_card, "Domain / use case", domain_var, _AUD_DOMAIN_OPTS, width=240)
-            self._modality_context_vars["domain"] = domain_var
 
         elif modality == "Text":
             def _rebuild_col_fields(backend_task: str) -> None:
@@ -1100,8 +1073,15 @@ class RunViewMixin:
                 aux_entry.pack(side="left", fill="x", expand=True, padx=(6, 0))
                 self._txt_aux_entry = aux_entry
 
-            def _on_text_task_change(task: str) -> None:
-                backend_task = _TXT_TASK_BACKEND.get(task, "classification_single")
+            self._txt_multilabel_format_var = ctk.StringVar(value="Single multi-label column")
+            self._txt_binary_entry = None
+            self._txt_aux_entry = None
+
+            task_var = ctk.StringVar(value=_TXT_TASK_OPTS[0])
+            label_mode_var = ctk.StringVar(value=_LABEL_MODE_OPTS[0])
+
+            def _apply_text_task() -> None:
+                backend_task = resolve_text_task(task_var.get(), label_mode_var.get())
                 metric_menu = getattr(self, "_text_metric_menu", None)
                 metric_var = self._modality_context_vars.get("metric")
                 values = text_valid_metrics_for_task(backend_task)
@@ -1110,20 +1090,42 @@ class RunViewMixin:
                     metric_var.set(text_default_metric_for_task(backend_task))
                 _rebuild_col_fields(backend_task)
 
-            self._txt_multilabel_format_var = ctk.StringVar(value="Single multi-label column")
-            self._txt_binary_entry = None
-            self._txt_aux_entry = None
+            def _on_text_task_change(task: str) -> None:
+                lm_row = getattr(self, "_txt_label_mode_row", None)
+                task_row = getattr(self, "_txt_task_row", None)
+                if lm_row is not None:
+                    if task == _TXT_CLASSIFICATION_TASK:
+                        if task_row is not None:
+                            lm_row.pack(fill="x", padx=14, pady=4, after=task_row)
+                        else:
+                            lm_row.pack(fill="x", padx=14, pady=4)
+                    else:
+                        lm_row.pack_forget()
+                _apply_text_task()
 
-            task_var = ctk.StringVar(value=_TXT_TASK_OPTS[0])
-            _ctx_row(ctx_card, "Task type", task_var, _TXT_TASK_OPTS, width=280, command=_on_text_task_change)
+            def _on_text_label_mode_change(_v: str) -> None:
+                _apply_text_task()
+
+            self._txt_task_row = _ctx_row(ctx_card, "Task type", task_var, _TXT_TASK_OPTS,
+                                          width=280, command=_on_text_task_change, required=True)
             self._modality_context_vars["task_type"] = task_var
 
-            initial_task = _TXT_TASK_BACKEND.get(task_var.get(), "classification_single")
+            self._txt_label_mode_row = _ctx_row(ctx_card, "Label mode", label_mode_var, _LABEL_MODE_OPTS,
+                                                width=180, command=_on_text_label_mode_change, required=True)
+            self._modality_context_vars["label_mode"] = label_mode_var
+            if task_var.get() != _TXT_CLASSIFICATION_TASK:
+                self._txt_label_mode_row.pack_forget()
+
+            initial_task = resolve_text_task(task_var.get(), label_mode_var.get())
             metric_values = text_valid_metrics_for_task(initial_task)
             metric_var = ctk.StringVar(value=text_default_metric_for_task(initial_task))
             _ctx_row(ctx_card, "Priority metric", metric_var, metric_values, width=220)
             self._modality_context_vars["metric"] = metric_var
             self._text_metric_menu = self._modality_menus[-1]
+
+            domain_var = ctk.StringVar(value=_SENTINEL)
+            _ctx_row(ctx_card, "Domain / use case", domain_var, _DOMAIN_OPTS, width=240)
+            self._modality_context_vars["domain"] = domain_var
 
             ctk.CTkLabel(
                 ctx_card,
@@ -1286,7 +1288,12 @@ class RunViewMixin:
         return result
 
     def _clear_context_fields(self) -> None:
-        self._target.delete(0, "end")
+        target = getattr(self, "_target", None)
+        if target is not None:
+            try:
+                target.delete(0, "end")
+            except Exception:
+                pass
         rp_entry = getattr(self, "_record_path_entry", None)
         if rp_entry is not None:
             try:
@@ -1306,10 +1313,9 @@ class RunViewMixin:
                 except Exception:
                     pass
         self._notes.delete("1.0", "end")
-        self._metric_var.set(default_metric_for_task(_CSV_TASK_BACKEND.get(self._csv_task_var.get(), "")))
-        # To avoid visual flickering, do not reset modality or task type
-        # which would trigger unnecessary UI layout repack operations.
-        for var in self._modality_context_vars.values():
+        for key, var in self._modality_context_vars.items():
+            if key in ("task_type", "metric", "label_mode"):
+                continue
             var.set(_SENTINEL)
         for var in self._constraint_vars.values():
             if hasattr(var, "get"):
@@ -1379,9 +1385,11 @@ class RunViewMixin:
         c3.pack(side="left", fill="both", expand=True, padx=(6, 0))
         _sec_label(c3, "METRICS", padx=14, pady=(10, 4))
         pmetric = msg["metric"]
-        m       = msg["metrics"]
-        metric_names = valid_metrics_for_task(task_type)
+        m       = msg.get("raw_metrics", msg["metrics"])
+        metric_names = valid_metrics_for_task(task_type) or list(m.keys())
         for mk in metric_names:
+            if mk not in m:
+                continue
             is_p = (mk == pmetric)
             mr   = ctk.CTkFrame(c3, fg_color="transparent")
             mr.pack(fill="x", padx=14, pady=1)
@@ -1687,11 +1695,13 @@ class RunViewMixin:
         m = msg.get("raw_metrics", msg["metrics"])
         metric_names = image_valid_metrics_for_task(task_type) or list(m.keys())
         for mk in metric_names:
+            if mk not in m:
+                continue
             is_p = (mk == pmetric)
             mr   = ctk.CTkFrame(c3, fg_color="transparent")
             mr.pack(fill="x", padx=14, pady=1)
             ctk.CTkLabel(mr,
-                         text=metric_label(mk),
+                         text=image_metric_label(mk),
                          font=ctk.CTkFont(family=FONT_FAMILY, size=12,
                                           weight="bold" if is_p else "normal"),
                          text_color=ACCENT if is_p else TXT_MUTED,

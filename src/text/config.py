@@ -5,40 +5,61 @@ from typing import Dict, List, Optional
 TEXT_CLASSIFICATION_METRICS = ["accuracy", "macro_f1", "weighted_f1", "precision", "recall"]
 TEXT_MULTILABEL_METRICS = ["micro_f1", "macro_f1", "hamming_loss", "subset_accuracy"]
 NER_METRICS = ["entity_f1", "entity_precision", "entity_recall", "token_f1"]
-POS_METRICS = ["token_accuracy", "macro_f1", "weighted_f1"]
-RELATION_METRICS = ["macro_f1", "micro_f1", "accuracy", "precision", "recall"]
 SIMILARITY_PAIR_METRICS = ["spearman", "pearson"]
 SUMMARIZATION_METRICS = ["rouge1", "rouge2", "rouge_l", "bertscore"]
 QA_METRICS = ["exact_match", "token_f1"]
-GENERATION_METRICS = ["rouge_l", "bleu", "inverse_perplexity"]
 TOPIC_METRICS = ["coherence", "topic_diversity", "silhouette", "nmi", "ari"]
 
+LABEL_MODES = ["single-label", "multi-label"]
+
 _TXT_TASK_BACKEND = {
-    "Text classification (single-label)": "classification_single",
-    "Text classification (multi-label)": "classification_multi",
+    "Text classification": "classification_single",
     "Named entity recognition": "ner",
-    "Part-of-speech tagging": "pos",
-    "Relation extraction": "relation_extraction",
     "Semantic similarity / search": "semantic_similarity",
     "Text summarization": "summarization",
     "Question answering": "question_answering",
-    "Text generation": "text_generation",
     "Topic modeling": "topic_modeling",
 }
 
-VALID_TASK_TYPES = list(_TXT_TASK_BACKEND.values())
+VALID_TASK_TYPES = [
+    "classification_single",
+    "classification_multi",
+    "ner",
+    "semantic_similarity",
+    "summarization",
+    "question_answering",
+    "topic_modeling",
+]
 SUPPORTED_TASK_TYPES = set(VALID_TASK_TYPES)
+
+DEPRECATED_TASK_TYPES = {
+    "pos",
+    "relation_extraction",
+    "text_generation",
+}
+
+TASK_DISPLAY_NAMES = {
+    "classification_single": "Text classification",
+    "classification_multi": "Text classification",
+    "ner": "Named entity recognition",
+    "semantic_similarity": "Semantic similarity / search",
+    "summarization": "Text summarization",
+    "question_answering": "Question answering",
+    "topic_modeling": "Topic modeling",
+}
+
+_LEGACY_TASK_ALIASES = {
+    "Text classification (single-label)": ("Text classification", "single-label"),
+    "Text classification (multi-label)": ("Text classification", "multi-label"),
+}
 
 _TASK_FAMILIES = {
     "classification_single": "classification",
     "classification_multi": "classification",
     "ner": "sequence_labeling",
-    "pos": "sequence_labeling",
-    "relation_extraction": "information_extraction",
     "semantic_similarity": "retrieval",
     "summarization": "seq2seq",
     "question_answering": "qa",
-    "text_generation": "generation",
     "topic_modeling": "topic",
 }
 
@@ -46,12 +67,9 @@ _TASK_METRICS = {
     "classification_single": TEXT_CLASSIFICATION_METRICS,
     "classification_multi": TEXT_MULTILABEL_METRICS,
     "ner": NER_METRICS,
-    "pos": POS_METRICS,
-    "relation_extraction": RELATION_METRICS,
     "semantic_similarity": SIMILARITY_PAIR_METRICS,
     "summarization": SUMMARIZATION_METRICS,
     "question_answering": QA_METRICS,
-    "text_generation": GENERATION_METRICS,
     "topic_modeling": TOPIC_METRICS,
 }
 
@@ -59,12 +77,9 @@ _DEFAULT_METRICS = {
     "classification_single": "macro_f1",
     "classification_multi": "micro_f1",
     "ner": "entity_f1",
-    "pos": "token_accuracy",
-    "relation_extraction": "macro_f1",
     "semantic_similarity": "spearman",
     "summarization": "rouge_l",
     "question_answering": "token_f1",
-    "text_generation": "rouge_l",
     "topic_modeling": "coherence",
 }
 
@@ -81,16 +96,13 @@ _METRIC_LABELS = {
     "entity_recall": "Entity recall",
     "entity_f1": "Entity F1",
     "token_f1": "Token F1",
-    "token_accuracy": "Token accuracy",
     "spearman": "Spearman correlation",
     "pearson": "Pearson correlation",
     "rouge1": "ROUGE-1",
     "rouge2": "ROUGE-2",
     "rouge_l": "ROUGE-L",
     "bertscore": "BERTScore",
-    "bleu": "BLEU",
     "exact_match": "Exact match",
-    "inverse_perplexity": "Inverse perplexity",
     "coherence": "Topic coherence",
     "topic_diversity": "Topic diversity",
     "silhouette": "Silhouette",
@@ -119,9 +131,52 @@ def metric_label(metric: str) -> str:
     return _METRIC_LABELS.get(metric, metric.replace("_", " ").title())
 
 
-SEQ_LABELING_TASKS = {"ner", "pos"}
-SEQ2SEQ_TASKS = {"summarization", "question_answering", "text_generation"}
-TABULAR_FUSION_COMPATIBLE = {"classification_single", "classification_multi", "relation_extraction", "semantic_similarity", "topic_modeling"}
+def is_deprecated_task(task_type: str) -> bool:
+    return normalize_task_type(task_type) in DEPRECATED_TASK_TYPES
+
+
+def normalize_label_mode(label_mode: str) -> str:
+    value = (label_mode or "").strip().lower()
+    if value.startswith("multi"):
+        return "multi-label"
+    if value.startswith("single"):
+        return "single-label"
+    return ""
+
+
+def resolve_text_task(task: str, label_mode: str = "") -> str:
+    """Resolve a UI task label (or backend key) plus a label mode to a backend task key."""
+    raw = (task or "").strip()
+    if raw in _LEGACY_TASK_ALIASES:
+        raw, label_mode = _LEGACY_TASK_ALIASES[raw]
+    if raw in _TXT_TASK_BACKEND:
+        backend = _TXT_TASK_BACKEND[raw]
+    else:
+        backend = normalize_task_type(raw)
+    if backend in {"classification_single", "classification_multi"}:
+        if normalize_label_mode(label_mode) == "multi-label":
+            return "classification_multi"
+        if normalize_label_mode(label_mode) == "single-label":
+            return "classification_single"
+    return backend
+
+
+def label_mode_for_task(task_type: str) -> str:
+    key = normalize_task_type(task_type)
+    if key == "classification_single":
+        return "single-label"
+    if key == "classification_multi":
+        return "multi-label"
+    return ""
+
+
+def task_display_name(task_type: str, label_mode: str = "") -> str:
+    return TASK_DISPLAY_NAMES.get(normalize_task_type(task_type), task_type or "")
+
+
+SEQ_LABELING_TASKS = {"ner"}
+SEQ2SEQ_TASKS = {"summarization", "question_answering"}
+TABULAR_FUSION_COMPATIBLE = {"classification_single", "classification_multi", "semantic_similarity", "topic_modeling"}
 
 
 @dataclass
@@ -144,10 +199,15 @@ class TextConfig:
     auxiliary_feature_columns: List[str] = field(default_factory=list)
     multilabel_format: str = "single_column"
     binary_label_columns: List[str] = field(default_factory=list)
+    label_mode: str = ""
 
     @property
     def supervision(self) -> str:
         return "unsupervised" if normalize_task_type(self.task_type) == "topic_modeling" else "supervised"
+
+    @property
+    def resolved_label_mode(self) -> str:
+        return normalize_label_mode(self.label_mode) or label_mode_for_task(self.task_type)
 
     @property
     def task_family(self) -> str:
@@ -168,6 +228,8 @@ class TextConfig:
         return {
             "task_type": task_type,
             "task_family": task_family(task_type),
+            "task_name": task_display_name(task_type),
+            "label_mode": self.resolved_label_mode,
             "domain": self.domain,
             "constraints": self.constraints,
             "active_constraints": self.active_constraints,

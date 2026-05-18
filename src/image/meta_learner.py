@@ -18,13 +18,9 @@ _TASK_TYPES = [
     "multilabel",
     "detection",
     "semantic_segmentation",
-    "instance_segmentation",
-    "keypoint",
     "retrieval",
     "anomaly",
     "ocr",
-    "generation",
-    "depth",
     "other",
 ]
 _TASK_TYPE_MAP = {task: idx for idx, task in enumerate(_TASK_TYPES)}

@@ -5,43 +5,62 @@ SINGLE_LABEL_CLASSIFICATION_METRICS = ["accuracy", "macro_f1", "weighted_f1", "p
 MULTILABEL_CLASSIFICATION_METRICS = ["micro_f1", "macro_f1", "hamming_loss", "subset_accuracy"]
 OBJECT_DETECTION_METRICS = ["map", "map_50", "precision", "recall", "mean_iou"]
 SEMANTIC_SEGMENTATION_METRICS = ["mean_iou", "pixel_accuracy", "dice_score"]
-INSTANCE_SEGMENTATION_METRICS = ["mask_map", "mask_iou", "dice_score", "precision", "recall"]
-KEYPOINT_METRICS = ["pck", "oks_map", "normalized_keypoint_error"]
 RETRIEVAL_METRICS = ["recall_at_k", "precision_at_k", "map", "mrr"]
 ANOMALY_METRICS = ["auroc", "auprc", "f1", "precision", "recall", "proxy_score"]
 OCR_METRICS = ["normalized_edit_similarity", "exact_match_accuracy", "cer", "wer"]
-GENERATION_METRICS = ["clip_similarity", "ssim", "psnr", "fid", "lpips"]
-DEPTH_METRICS = ["delta_accuracy", "rmse", "mae", "abs_rel"]
+
+LABEL_MODES = ["single-label", "multi-label"]
 
 _IMG_TASK_BACKEND = {
-    "Image classification (single-label)": "classification",
-    "Image classification (multi-label)": "multilabel",
+    "Image classification": "classification",
     "Object detection": "detection",
     "Semantic segmentation": "semantic_segmentation",
-    "Instance segmentation": "instance_segmentation",
-    "Keypoint / pose estimation": "keypoint",
     "Image similarity / retrieval": "retrieval",
     "Anomaly / defect detection": "anomaly",
     "Optical character recognition": "ocr",
-    "Image generation / synthesis": "generation",
-    "Depth estimation": "depth",
 }
 
-VALID_TASK_TYPES = list(_IMG_TASK_BACKEND.values())
+VALID_TASK_TYPES = [
+    "classification",
+    "multilabel",
+    "detection",
+    "semantic_segmentation",
+    "retrieval",
+    "anomaly",
+    "ocr",
+]
 SUPPORTED_TASK_TYPES = set(VALID_TASK_TYPES)
+
+DEPRECATED_TASK_TYPES = {
+    "instance_segmentation",
+    "keypoint",
+    "generation",
+    "depth",
+}
+
+TASK_DISPLAY_NAMES = {
+    "classification": "Image classification",
+    "multilabel": "Image classification",
+    "detection": "Object detection",
+    "semantic_segmentation": "Semantic segmentation",
+    "retrieval": "Image similarity / retrieval",
+    "anomaly": "Anomaly / defect detection",
+    "ocr": "Optical character recognition",
+}
+
+_LEGACY_TASK_ALIASES = {
+    "Image classification (single-label)": ("Image classification", "single-label"),
+    "Image classification (multi-label)": ("Image classification", "multi-label"),
+}
 
 _TASK_FAMILIES = {
     "classification": "classification",
     "multilabel": "classification",
     "detection": "detection",
     "semantic_segmentation": "segmentation",
-    "instance_segmentation": "segmentation",
-    "keypoint": "keypoint",
     "retrieval": "retrieval",
     "anomaly": "anomaly",
     "ocr": "ocr",
-    "generation": "generation",
-    "depth": "depth",
 }
 
 _TASK_METRICS = {
@@ -49,13 +68,9 @@ _TASK_METRICS = {
     "multilabel": MULTILABEL_CLASSIFICATION_METRICS,
     "detection": OBJECT_DETECTION_METRICS,
     "semantic_segmentation": SEMANTIC_SEGMENTATION_METRICS,
-    "instance_segmentation": INSTANCE_SEGMENTATION_METRICS,
-    "keypoint": KEYPOINT_METRICS,
     "retrieval": RETRIEVAL_METRICS,
     "anomaly": ANOMALY_METRICS,
     "ocr": OCR_METRICS,
-    "generation": GENERATION_METRICS,
-    "depth": DEPTH_METRICS,
 }
 
 _DEFAULT_METRICS = {
@@ -63,13 +78,9 @@ _DEFAULT_METRICS = {
     "multilabel": "micro_f1",
     "detection": "map",
     "semantic_segmentation": "mean_iou",
-    "instance_segmentation": "mask_map",
-    "keypoint": "pck",
     "retrieval": "recall_at_k",
     "anomaly": "auroc",
     "ocr": "normalized_edit_similarity",
-    "generation": "clip_similarity",
-    "depth": "delta_accuracy",
 }
 
 _METRIC_LABELS = {
@@ -86,11 +97,6 @@ _METRIC_LABELS = {
     "mean_iou": "Mean IoU",
     "pixel_accuracy": "Pixel accuracy",
     "dice_score": "Dice score",
-    "mask_map": "Mask mAP",
-    "mask_iou": "Mask IoU",
-    "pck": "PCK",
-    "oks_map": "OKS mAP",
-    "normalized_keypoint_error": "Normalized keypoint error",
     "recall_at_k": "Recall@k",
     "precision_at_k": "Precision@k",
     "mrr": "Mean reciprocal rank",
@@ -102,15 +108,6 @@ _METRIC_LABELS = {
     "exact_match_accuracy": "Exact match accuracy",
     "cer": "Character error rate",
     "wer": "Word error rate",
-    "clip_similarity": "CLIP similarity",
-    "ssim": "SSIM",
-    "psnr": "PSNR",
-    "fid": "FID",
-    "lpips": "LPIPS",
-    "delta_accuracy": "Delta accuracy",
-    "rmse": "RMSE",
-    "mae": "MAE",
-    "abs_rel": "Absolute relative error",
 }
 
 
@@ -134,6 +131,46 @@ def metric_label(metric: str) -> str:
     return _METRIC_LABELS.get(metric, metric.replace("_", " ").title())
 
 
+def is_deprecated_task(task_type: str) -> bool:
+    return normalize_task_type(task_type) in DEPRECATED_TASK_TYPES
+
+
+def normalize_label_mode(label_mode: str) -> str:
+    value = (label_mode or "").strip().lower()
+    if value.startswith("multi"):
+        return "multi-label"
+    if value.startswith("single"):
+        return "single-label"
+    return ""
+
+
+def resolve_image_task(task: str, label_mode: str = "") -> str:
+    """Resolve a UI task label (or backend key) plus a label mode to a backend task key."""
+    raw = (task or "").strip()
+    if raw in _LEGACY_TASK_ALIASES:
+        raw, label_mode = _LEGACY_TASK_ALIASES[raw]
+    if raw in _IMG_TASK_BACKEND:
+        backend = _IMG_TASK_BACKEND[raw]
+    else:
+        backend = normalize_task_type(raw)
+    if backend == "classification" and normalize_label_mode(label_mode) == "multi-label":
+        return "multilabel"
+    return backend
+
+
+def label_mode_for_task(task_type: str) -> str:
+    key = normalize_task_type(task_type)
+    if key == "classification":
+        return "single-label"
+    if key == "multilabel":
+        return "multi-label"
+    return ""
+
+
+def task_display_name(task_type: str, label_mode: str = "") -> str:
+    return TASK_DISPLAY_NAMES.get(normalize_task_type(task_type), task_type or "")
+
+
 @dataclass
 class ImageConfig:
     data_path: Path
@@ -146,10 +183,15 @@ class ImageConfig:
     input_format: str = ""
     image_format: str = ""
     color_space: str = ""
+    label_mode: str = ""
 
     @property
     def supervision(self) -> str:
-        return "unsupervised" if normalize_task_type(self.task_type) in {"retrieval", "generation"} else "supervised"
+        return "unsupervised" if normalize_task_type(self.task_type) == "retrieval" else "supervised"
+
+    @property
+    def resolved_label_mode(self) -> str:
+        return normalize_label_mode(self.label_mode) or label_mode_for_task(self.task_type)
 
     @property
     def task_family(self) -> str:
@@ -166,6 +208,8 @@ class ImageConfig:
         return {
             "task_type": task_type,
             "task_family": task_family(task_type),
+            "task_name": task_display_name(task_type),
+            "label_mode": self.resolved_label_mode,
             "domain": self.domain,
             "constraints": self.constraints,
             "active_constraints": self.active_constraints,

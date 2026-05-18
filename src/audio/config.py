@@ -6,7 +6,6 @@ AUDIO_CLASSIFICATION_METRICS = ["accuracy", "macro_f1", "weighted_f1", "precisio
 ASR_METRICS = ["wer", "cer", "exact_match_accuracy", "normalized_edit_similarity"]
 SPEAKER_IDENTIFICATION_METRICS = ["accuracy", "macro_f1", "weighted_f1"]
 SPEAKER_VERIFICATION_METRICS = ["equal_error_rate", "auroc", "verification_accuracy"]
-DIARIZATION_METRICS = ["diarization_error_rate", "speaker_confusion", "missed_speech", "false_alarm_speech"]
 SOUND_EVENT_METRICS = ["event_f1", "segment_f1", "precision", "recall", "error_rate"]
 VAD_METRICS = ["frame_f1", "precision", "recall", "false_alarm_rate", "miss_rate"]
 ANOMALY_METRICS = ["auroc", "auprc", "f1", "precision", "recall", "proxy_score", "score_separation", "reconstruction_consistency", "stability"]
@@ -16,7 +15,6 @@ _AUD_TASK_BACKEND = {
     "Audio classification": "classification",
     "Speech recognition (ASR)": "asr",
     "Speaker recognition": "speaker_recognition",
-    "Speaker diarization": "speaker_diarization",
     "Sound event detection": "sound_event_detection",
     "Voice activity detection": "vad",
     "Audio anomaly detection": "anomaly",
@@ -26,11 +24,24 @@ _AUD_TASK_BACKEND = {
 VALID_TASK_TYPES = list(_AUD_TASK_BACKEND.values())
 SUPPORTED_TASK_TYPES = set(VALID_TASK_TYPES)
 
+DEPRECATED_TASK_TYPES = {
+    "speaker_diarization",
+}
+
+TASK_DISPLAY_NAMES = {
+    "classification": "Audio classification",
+    "asr": "Speech recognition (ASR)",
+    "speaker_recognition": "Speaker recognition",
+    "sound_event_detection": "Sound event detection",
+    "vad": "Voice activity detection",
+    "anomaly": "Audio anomaly detection",
+    "noise_suppression": "Noise suppression",
+}
+
 _TASK_FAMILIES = {
     "classification": "classification",
     "asr": "speech",
     "speaker_recognition": "speaker",
-    "speaker_diarization": "speaker",
     "sound_event_detection": "event",
     "vad": "speech",
     "anomaly": "anomaly",
@@ -41,7 +52,6 @@ _TASK_METRICS = {
     "classification": AUDIO_CLASSIFICATION_METRICS,
     "asr": ASR_METRICS,
     "speaker_recognition": sorted(set(SPEAKER_IDENTIFICATION_METRICS + SPEAKER_VERIFICATION_METRICS)),
-    "speaker_diarization": DIARIZATION_METRICS,
     "sound_event_detection": SOUND_EVENT_METRICS,
     "vad": VAD_METRICS,
     "anomaly": ANOMALY_METRICS,
@@ -52,7 +62,6 @@ _DEFAULT_METRICS = {
     "classification": "macro_f1",
     "asr": "normalized_edit_similarity",
     "speaker_recognition": "macro_f1",
-    "speaker_diarization": "diarization_error_rate",
     "sound_event_detection": "event_f1",
     "vad": "frame_f1",
     "anomaly": "auroc",
@@ -72,10 +81,6 @@ _METRIC_LABELS = {
     "equal_error_rate": "Equal error rate",
     "auroc": "AUROC",
     "verification_accuracy": "Verification accuracy",
-    "diarization_error_rate": "Diarization error rate",
-    "speaker_confusion": "Speaker confusion",
-    "missed_speech": "Missed speech",
-    "false_alarm_speech": "False alarm speech",
     "event_f1": "Event-based F1",
     "segment_f1": "Segment-based F1",
     "error_rate": "Error rate",
@@ -116,6 +121,14 @@ def metric_label(metric: str) -> str:
     return _METRIC_LABELS.get(metric, metric.replace("_", " ").title())
 
 
+def is_deprecated_task(task_type: str) -> bool:
+    return normalize_task_type(task_type) in DEPRECATED_TASK_TYPES
+
+
+def task_display_name(task_type: str, label_mode: str = "") -> str:
+    return TASK_DISPLAY_NAMES.get(normalize_task_type(task_type), task_type or "")
+
+
 @dataclass
 class AudioConfig:
     data_path: Path
@@ -153,6 +166,7 @@ class AudioConfig:
         return {
             "task_type": task_type,
             "task_family": task_family(task_type),
+            "task_name": task_display_name(task_type),
             "domain": self.domain,
             "constraints": self.constraints,
             "active_constraints": self.active_constraints,

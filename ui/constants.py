@@ -17,6 +17,7 @@ BG_BAR      = ("#f8fafc", "#1e293b")   # top bars / hover
 BG_INPUT    = ("#ffffff", "#0f172a")   # input fields
 BG_CARD     = ("#ffffff", "#1e293b")   # card surfaces
 BORDER      = ("#cbd5e1", "#334155")   # card borders
+ROW_HIGHLIGHT = ("#dbeafe", "#1a2540") # highlighted table row (selected metric / best rank)
 
 # Accent / semantic — desaturated for dark mode to avoid eye-strain
 ACCENT      = ("#3b82f6", "#3b82f6")   # primary blue

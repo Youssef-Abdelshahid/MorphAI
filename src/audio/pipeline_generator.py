@@ -63,13 +63,13 @@ def generate_pipelines(
     constraints = tc.get("active_constraints") or []
     task_type = tc.get("task_type", "classification")
     classification_like = task_type in {"classification", "speaker_recognition", "sound_event_detection", "anomaly"}
-    speech_like = task_type in {"asr", "speaker_recognition", "speaker_diarization", "vad", "noise_suppression"}
+    speech_like = task_type in {"asr", "speaker_recognition", "vad", "noise_suppression"}
     target_sr = 16000 if speech_like else 22050
     if profile.sample_rate_distribution:
         native_rates = [int(k) for k in profile.sample_rate_distribution if str(k).isdigit()]
         if native_rates and len(set(native_rates)) == 1:
             target_sr = native_rates[0] if native_rates[0] <= 48000 else target_sr
-    use_trim = profile.silence_ratio > 0.05 and task_type not in {"asr", "sound_event_detection", "speaker_diarization", "noise_suppression"}
+    use_trim = profile.silence_ratio > 0.05 and task_type not in {"asr", "sound_event_detection", "noise_suppression"}
     use_noise = profile.estimated_noise_ratio > 0.25 and task_type not in {"speaker_recognition"}
     use_clip = profile.clipping_ratio > 0.01
     imbalance = "oversample" if classification_like and profile.imbalance_ratio > 1.5 else "none"

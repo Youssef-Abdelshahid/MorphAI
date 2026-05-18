@@ -16,14 +16,10 @@ MAX_META_WEIGHT      = 0.25
 _TASK_TYPES    = [
     "binary",
     "multiclass",
-    "multilabel",
     "regression",
-    "ordinal",
-    "ranking",
     "time_series",
     "clustering",
     "anomaly",
-    "dimensionality_reduction",
     "association_rules",
     "other",
 ]
@@ -110,23 +106,15 @@ def _encode_task_type_bin(task_type: str) -> float:
     if t == "binary":
         return 0.0
     if t == "multiclass":
-        return 0.1
-    if t == "multilabel":
-        return 0.2
+        return 0.15
     if t == "regression":
         return 0.35
-    if t == "ordinal":
-        return 0.45
-    if t == "ranking":
-        return 0.55
     if t == "time_series":
-        return 0.65
+        return 0.5
     if t == "clustering":
-        return 0.75
+        return 0.65
     if t == "anomaly":
-        return 0.85
-    if t == "dimensionality_reduction":
-        return 0.92
+        return 0.8
     if t == "association_rules":
         return 1.0
     return 0.5
